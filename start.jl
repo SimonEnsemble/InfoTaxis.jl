@@ -6,7 +6,7 @@ using InteractiveUtils
 
 # ╔═╡ 0d48c2ef-89e3-4c58-bc22-4eb0d0c42ca3
 begin
-	import Pkg; Pkg.activate()
+	#import Pkg; Pkg.activate()
 	using LinearAlgebra, CairoMakie, Distributions, SpecialFunctions
 end
 
