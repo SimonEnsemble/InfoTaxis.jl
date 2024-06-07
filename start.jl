@@ -106,6 +106,12 @@ end
 # ╔═╡ b122650d-eaeb-4b90-91b7-3e267fc33e4e
 md"# probability map"
 
+# ╔═╡ 0b99186d-3aa4-45aa-b603-106f05dc016f
+function hit_prob(h::Int64, robot::Robot, x₀::Vector{Float64}, p::PlumeParams)
+	μ_d = μ(robot, x₀, p)
+	return μ_d^h * exp(-μ_d) / factorial(h)
+end
+
 # ╔═╡ 091277fe-3356-45ea-b58a-68db8a015334
 function prior(grid::SearchGrid)
 	return ones(grid.N, grid.N).*(grid.N)^-2
@@ -1585,6 +1591,7 @@ version = "3.5.0+0"
 # ╠═cf304c4a-b015-42dc-93d6-a3ea89a049a7
 # ╠═8a415e23-5ebc-49bb-964c-dd6483525b57
 # ╟─b122650d-eaeb-4b90-91b7-3e267fc33e4e
+# ╠═0b99186d-3aa4-45aa-b603-106f05dc016f
 # ╠═091277fe-3356-45ea-b58a-68db8a015334
 # ╠═4f4c1561-9a0a-49f9-9824-80ed79e395f7
 # ╟─00000000-0000-0000-0000-000000000001
