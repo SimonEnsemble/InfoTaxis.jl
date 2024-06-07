@@ -104,7 +104,15 @@ function μ(robot::Robot, x₀::Vector{Float64}, p::PlumeParams)
 end
 
 # ╔═╡ b122650d-eaeb-4b90-91b7-3e267fc33e4e
-md"# measurement model"
+md"# probability map"
+
+# ╔═╡ 091277fe-3356-45ea-b58a-68db8a015334
+function prior(grid::SearchGrid)
+	return ones(grid.N, grid.N).*(grid.N)^-2
+end
+
+# ╔═╡ 4f4c1561-9a0a-49f9-9824-80ed79e395f7
+p_x = prior(sg)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1573,9 +1581,11 @@ version = "3.5.0+0"
 # ╠═e659213c-2452-11ef-0d91-89be83a7d4bd
 # ╠═5f6089d6-f89b-4d90-b7cc-dda89bf1fd48
 # ╠═5c8bb8b0-ab55-4011-8fe6-70ddea5c08a7
-# ╠═52a1a366-e911-4db8-b09d-3811085a1373
+# ╟─52a1a366-e911-4db8-b09d-3811085a1373
 # ╠═cf304c4a-b015-42dc-93d6-a3ea89a049a7
 # ╠═8a415e23-5ebc-49bb-964c-dd6483525b57
-# ╠═b122650d-eaeb-4b90-91b7-3e267fc33e4e
+# ╟─b122650d-eaeb-4b90-91b7-3e267fc33e4e
+# ╠═091277fe-3356-45ea-b58a-68db8a015334
+# ╠═4f4c1561-9a0a-49f9-9824-80ed79e395f7
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
