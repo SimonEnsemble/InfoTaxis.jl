@@ -7,7 +7,7 @@ using InteractiveUtils
 # ╔═╡ 0d48c2ef-89e3-4c58-bc22-4eb0d0c42ca3
 begin
 	#import Pkg; Pkg.activate()
-	using LinearAlgebra, CairoMakie, Distributions, SpecialFunctions, PlutoUI
+	using LinearAlgebra, CairoMakie, Distributions, SpecialFunctions, PlutoUI, ColorSchemes
 end
 
 # ╔═╡ 83eaac5f-b8d0-4c62-b681-29911c219eee
@@ -81,12 +81,36 @@ end
 
 # ╔═╡ 5f6089d6-f89b-4d90-b7cc-dda89bf1fd48
 function c(x::Vector{Float64}, x₀::Vector{Float64}, p::PlumeParams) # g/m²
-	return p.R / (2 * π * p.D) * besselk(0, p.κ * norm(x - p.x₀)) * 
-	        exp(dot(p.v, x - p.x₀) / (2 * p.D))
+	
+	c_x = p.R / (2 * π * p.D) * besselk(0, p.κ * norm(x - x₀)) * 
+	        exp(dot(p.v, x - x₀) / (2 * p.D))
+
+	#sometimes this equation returns a concentration of NaN
+	if !(-Inf<c_x<Inf)
+		c_x = 0.0
+	end
+	
+	return c_x
 end
 
 # ╔═╡ 5c8bb8b0-ab55-4011-8fe6-70ddea5c08a7
-p = PlumeParams(R=10.0, D=25.0, τ=50.0, v=[-5.0, 15.0])
+p = PlumeParams(R=100.0, D=0.9, τ=100.0, v=[-2.1, -1.1])
+
+# ╔═╡ a7b1dda5-0a95-4aa2-bb80-201767f3ba35
+begin
+	x₁_size = 1000
+	x₂_size = 1000
+	test_grid = zeros(x₁_size , x₂_size)
+	x₀ = [520.0, 440.0]
+
+	
+	for i=1:x₁_size
+		for j=1:x₂_size
+			test_grid[i, j] = c([Float64(i), Float64(j)], x₀, p)
+		end
+	end
+	test_grid
+end
 
 # ╔═╡ 52a1a366-e911-4db8-b09d-3811085a1373
 md"# measurement model"
@@ -146,10 +170,41 @@ begin
 	sum(p_x)
 end
 
+# ╔═╡ 2607e7db-89f3-4118-a89e-9d0aefd80ddb
+md"""
+# test
+"""
+
+# ╔═╡ 9fbc011b-e088-4dba-9b02-d6cdfbf36f21
+function plot_adv_diff(grid::Matrix{Float64}; simple_colors::Bool=false)
+	if simple_colors
+		scheme = ColorSchemes.deep
+	else
+		scheme = ColorScheme(vcat([ColorSchemes.deep[i] for i in 							  0:0.01:1.0], ColorSchemes.reverse([ColorSchemes.deep[i] for i in 							  0:0.001:1.0])))
+	end
+	
+	fig = Figure()
+	ax  = Axis(fig[1, 1], 
+			  aspect=DataAspect(), 
+			  title="Steady State Plume Advection Diffusion Heat Map", 
+			  xlabel="x₁ coordinate", 
+			  ylabel="x₂ coordinate", 
+			  xlabelsize=18, 
+			  ylabelsize=18, 
+			  titlesize=19)
+	hm  = heatmap!(grid, colormap=scheme)
+	Colorbar(fig[1, 2], hm, label = "Concentration [g/m³]", labelsize=15)
+	fig
+end
+
+# ╔═╡ 51600c9a-43d7-4b4f-82b6-33a720956087
+plot_adv_diff(test_grid, simple_colors=false)
+
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
@@ -157,6 +212,7 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [compat]
 CairoMakie = "~0.12.2"
+ColorSchemes = "~3.25.0"
 Distributions = "~0.25.109"
 PlutoUI = "~0.7.59"
 SpecialFunctions = "~2.4.0"
@@ -168,7 +224,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.4"
 manifest_format = "2.0"
-project_hash = "0230c5eafc49178cc505f3e193bd6562d307625c"
+project_hash = "9d045b43ec2b2c1db2829cb2fa2586ea4dfe8f12"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -1613,6 +1669,8 @@ version = "3.5.0+0"
 # ╠═e659213c-2452-11ef-0d91-89be83a7d4bd
 # ╠═5f6089d6-f89b-4d90-b7cc-dda89bf1fd48
 # ╠═5c8bb8b0-ab55-4011-8fe6-70ddea5c08a7
+# ╠═a7b1dda5-0a95-4aa2-bb80-201767f3ba35
+# ╠═51600c9a-43d7-4b4f-82b6-33a720956087
 # ╟─52a1a366-e911-4db8-b09d-3811085a1373
 # ╠═cf304c4a-b015-42dc-93d6-a3ea89a049a7
 # ╠═8a415e23-5ebc-49bb-964c-dd6483525b57
@@ -1622,5 +1680,7 @@ version = "3.5.0+0"
 # ╠═b606703e-8032-4ca4-b87b-e9530d3d3ef0
 # ╠═661d53a2-1930-4a81-b405-12ca0011da71
 # ╠═c7cd3003-c7c8-422b-ae2b-753d4a23a972
+# ╟─2607e7db-89f3-4118-a89e-9d0aefd80ddb
+# ╠═9fbc011b-e088-4dba-9b02-d6cdfbf36f21
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
