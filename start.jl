@@ -94,7 +94,7 @@ md"# measurement model"
 # ╔═╡ cf304c4a-b015-42dc-93d6-a3ea89a049a7
 mutable struct Robot
 	x::Vector{Float64}
-	a::Int      # area of sensor
+	a::Float64      # area of sensor
 	Δt::Float64 # measurement time
 end
 
@@ -117,8 +117,34 @@ function prior(grid::SearchGrid)
 	return ones(grid.N, grid.N).*(grid.N)^-2
 end
 
-# ╔═╡ 4f4c1561-9a0a-49f9-9824-80ed79e395f7
-p_x = prior(sg)
+# ╔═╡ 661d53a2-1930-4a81-b405-12ca0011da71
+function find_grid_index(robot::Robot, sg::SearchGrid)
+	return [round(Int, robot.x[i]/sg.Δ, RoundUp) for i in eachindex(robot.x)]
+end
+
+# ╔═╡ b606703e-8032-4ca4-b87b-e9530d3d3ef0
+function update_no_source!(robot::Robot, map::Matrix{Float64}, sg::SearchGrid)
+	index = find_grid_index(robot, sg)
+	map[index[1], index[2]] = 0.0
+	map .= map / sum(map)
+end
+
+# ╔═╡ c7cd3003-c7c8-422b-ae2b-753d4a23a972
+begin 
+	#QUICK TEST
+	r = Robot([0.65, 0.01], 0.1, 1.0)
+	find_grid_index(r, sg)
+	p_x = prior(sg)
+	for row in eachrow(p_x)
+		println(row)
+	end
+
+	update_no_source!(r, p_x, sg)
+	for row in eachrow(p_x)
+		println(row)
+	end
+	sum(p_x)
+end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1593,6 +1619,8 @@ version = "3.5.0+0"
 # ╟─b122650d-eaeb-4b90-91b7-3e267fc33e4e
 # ╠═0b99186d-3aa4-45aa-b603-106f05dc016f
 # ╠═091277fe-3356-45ea-b58a-68db8a015334
-# ╠═4f4c1561-9a0a-49f9-9824-80ed79e395f7
+# ╠═b606703e-8032-4ca4-b87b-e9530d3d3ef0
+# ╠═661d53a2-1930-4a81-b405-12ca0011da71
+# ╠═c7cd3003-c7c8-422b-ae2b-753d4a23a972
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
