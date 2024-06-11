@@ -65,6 +65,7 @@ md"# forward model"
 # ╔═╡ e659213c-2452-11ef-0d91-89be83a7d4bd
 begin
 	struct PlumeParams
+		x₀::Vector{Float64} # source location [m, m]
 	    R::Float64          # source strength [g/min]
 	    v::Vector{Float64}  # wind vector [m/s]
 	    D::Float64          # diffusion coefficent [m²/min]
@@ -73,20 +74,21 @@ begin
 	end
 	
 	# constructor that computes κ for us
-	function PlumeParams(; R=R, D=D, τ=τ, v=v)
+	function PlumeParams(;x₀=x₀, R=R, D=D, τ=τ, v=v)
 	    κ = sqrt((dot(v, v) + 4 * D / τ) / (4 * D ^ 2)) # m⁻²
-	    return PlumeParams(R, v, D, τ, κ)
+	    return PlumeParams(x₀, R, v, D, τ, κ)
 	end
 end
 
 # ╔═╡ 5f6089d6-f89b-4d90-b7cc-dda89bf1fd48
-function c(x::Vector{Float64}, x₀::Vector{Float64}, p::PlumeParams) # g/m²
+function c(x::Vector{Float64}, p::PlumeParams) # g/m²
 	
-	c_x = p.R / (2 * π * p.D) * besselk(0, p.κ * norm(x - x₀)) * 
-	        exp(dot(p.v, x - x₀) / (2 * p.D))
+	c_x = p.R / (2 * π * p.D) * besselk(0, p.κ * norm(x - p.x₀)) * 
+	        exp(dot(p.v, x - p.x₀) / (2 * p.D))
 
 	#sometimes this equation returns a concentration of NaN
 	if isnan(c_x)
+		@warn "NaN concentration value @$x"
 		c_x = 0.0
 	end
 	
@@ -94,19 +96,22 @@ function c(x::Vector{Float64}, x₀::Vector{Float64}, p::PlumeParams) # g/m²
 end
 
 # ╔═╡ 5c8bb8b0-ab55-4011-8fe6-70ddea5c08a7
-p = PlumeParams(R=100.0, D=0.9, τ=100.0, v=[-2.1, -1.1])
+p = PlumeParams(x₀=[520.0, 440.0], R=1000.0, D=10.9, τ=1000.0, v=[-2.1, -1.1])
 
 # ╔═╡ a7b1dda5-0a95-4aa2-bb80-201767f3ba35
 begin
 	x₁_size = 1000
 	x₂_size = 1000
 	test_grid = zeros(x₁_size , x₂_size)
-	x₀ = [520.0, 440.0]
+	#x₀ = [520.0/2, 440.0/2]
 
 	
 	for i=1:x₁_size
 		for j=1:x₂_size
-			test_grid[i, j] = c([Float64(i), Float64(j)], x₀, p)
+			test_grid[i, j] = c([Float64(i), Float64(j)], p)
+			if isnan(test_grid[i, j])
+				println("($i, $j)")
+			end
 		end
 	end
 	test_grid
@@ -153,6 +158,16 @@ function update_no_source!(robot::Robot, map::Matrix{Float64}, sg::SearchGrid)
 	map .= map / sum(map)
 end
 
+# ╔═╡ 266b9c8a-56e7-4d47-bff7-621cd39628d0
+function expected_entropy(exp_x::Vector{Float64}, map::Matrix{Float64}, sg::SearchGrid)
+
+end
+
+# ╔═╡ 2607e7db-89f3-4118-a89e-9d0aefd80ddb
+md"""
+# testing
+"""
+
 # ╔═╡ c7cd3003-c7c8-422b-ae2b-753d4a23a972
 begin 
 	#QUICK TEST
@@ -170,10 +185,23 @@ begin
 	sum(p_x)
 end
 
-# ╔═╡ 2607e7db-89f3-4118-a89e-9d0aefd80ddb
+# ╔═╡ ebfd5f1a-ad98-462a-b87c-c89c7a3b55cc
 md"""
-# test
+## test visuals
 """
+
+# ╔═╡ ecbecb5b-c2c5-4503-8391-132f28832f34
+function bessel_viz()
+	fig = Figure()
+	ax = Axis(fig[1, 1], xlabel="κ * ||x - x₀||", ylabel="K₀(x)")
+	xs = 1.0:0.1:10.0
+	ys = [besselk(0, xs[i]) for i in eachindex(xs)]
+	lines!(xs, ys)
+	return fig
+end
+
+# ╔═╡ 0a251512-1eae-4b1a-ab4e-ace934f64906
+bessel_viz()
 
 # ╔═╡ 9fbc011b-e088-4dba-9b02-d6cdfbf36f21
 function plot_adv_diff(grid::Matrix{Float64}; simple_colors::Bool=false)
@@ -1670,7 +1698,6 @@ version = "3.5.0+0"
 # ╠═5f6089d6-f89b-4d90-b7cc-dda89bf1fd48
 # ╠═5c8bb8b0-ab55-4011-8fe6-70ddea5c08a7
 # ╠═a7b1dda5-0a95-4aa2-bb80-201767f3ba35
-# ╠═51600c9a-43d7-4b4f-82b6-33a720956087
 # ╟─52a1a366-e911-4db8-b09d-3811085a1373
 # ╠═cf304c4a-b015-42dc-93d6-a3ea89a049a7
 # ╠═8a415e23-5ebc-49bb-964c-dd6483525b57
@@ -1679,8 +1706,13 @@ version = "3.5.0+0"
 # ╠═091277fe-3356-45ea-b58a-68db8a015334
 # ╠═b606703e-8032-4ca4-b87b-e9530d3d3ef0
 # ╠═661d53a2-1930-4a81-b405-12ca0011da71
-# ╠═c7cd3003-c7c8-422b-ae2b-753d4a23a972
+# ╠═266b9c8a-56e7-4d47-bff7-621cd39628d0
 # ╟─2607e7db-89f3-4118-a89e-9d0aefd80ddb
+# ╠═c7cd3003-c7c8-422b-ae2b-753d4a23a972
+# ╟─ebfd5f1a-ad98-462a-b87c-c89c7a3b55cc
+# ╠═ecbecb5b-c2c5-4503-8391-132f28832f34
+# ╠═0a251512-1eae-4b1a-ab4e-ace934f64906
 # ╠═9fbc011b-e088-4dba-9b02-d6cdfbf36f21
+# ╠═51600c9a-43d7-4b4f-82b6-33a720956087
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
