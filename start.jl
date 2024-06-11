@@ -86,7 +86,7 @@ function c(x::Vector{Float64}, x₀::Vector{Float64}, p::PlumeParams) # g/m²
 	        exp(dot(p.v, x - x₀) / (2 * p.D))
 
 	#sometimes this equation returns a concentration of NaN
-	if !(-Inf<c_x<Inf)
+	if isnan(c_x)
 		c_x = 0.0
 	end
 	
