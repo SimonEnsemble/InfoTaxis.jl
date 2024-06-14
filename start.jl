@@ -203,6 +203,28 @@ end
 # ╔═╡ 0a251512-1eae-4b1a-ab4e-ace934f64906
 bessel_viz()
 
+# ╔═╡ 57da69d5-151c-49df-a43f-2a129912320a
+function test(; v=[1.2, 2.4], D=4.4, τ=1.1, a=0.1)
+	κ = sqrt((v⋅v+4*D/τ)/(4*D^2))
+	λ = sqrt((D*τ)/(1+v⋅v*τ/(4*D)))
+	#println(κ)
+	#println(λ)
+
+	x = [1.4, 10.2]
+	paper = besselk(0, norm(x)/λ) / log(λ/a)
+	cory = besselk(0, norm(x) * κ) / log(1/(a*κ))
+
+	println("paper = $(paper)")
+	println("cory = $(cory)")
+	println(λ/κ)
+end
+
+# ╔═╡ 2538522a-2304-4f3a-8723-3272f8e3cc8a
+
+
+# ╔═╡ 57c76340-a9a2-445c-9cc9-0f2a6124d930
+test()
+
 # ╔═╡ 9fbc011b-e088-4dba-9b02-d6cdfbf36f21
 function plot_adv_diff(grid::Matrix{Float64}; simple_colors::Bool=false)
 	if simple_colors
@@ -1712,6 +1734,9 @@ version = "3.5.0+0"
 # ╟─ebfd5f1a-ad98-462a-b87c-c89c7a3b55cc
 # ╠═ecbecb5b-c2c5-4503-8391-132f28832f34
 # ╠═0a251512-1eae-4b1a-ab4e-ace934f64906
+# ╠═57da69d5-151c-49df-a43f-2a129912320a
+# ╠═2538522a-2304-4f3a-8723-3272f8e3cc8a
+# ╠═57c76340-a9a2-445c-9cc9-0f2a6124d930
 # ╠═9fbc011b-e088-4dba-9b02-d6cdfbf36f21
 # ╠═51600c9a-43d7-4b4f-82b6-33a720956087
 # ╟─00000000-0000-0000-0000-000000000001
