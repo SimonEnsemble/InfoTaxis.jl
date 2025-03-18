@@ -8,7 +8,7 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase
 end
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
@@ -173,6 +173,9 @@ end
 # ╔═╡ d38aeeca-4e5a-40e1-9171-0a187e84eb69
 viz_data(data)
 
+# ╔═╡ 26a4354f-826e-43bb-9f52-eea54cc7e30f
+R_max = 100.0 # g/min
+
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
 @model function plume_model(data)
     #=
@@ -181,7 +184,7 @@ viz_data(data)
 	# source location
     x₀ ~ filldist(Uniform(0.0, L), 2)
 	# source strength
-	R ~ Uniform(0.0, 100.0)
+	R ~ Uniform(0.0, R_max)
 
     #=
 	likelihood
@@ -207,11 +210,77 @@ infer the source location and strength.
 begin
 	prob_model = plume_model(data)
 			
-	nb_samples = 2_500 # per chain
+	nb_samples = 1000 # per chain
 	nb_chains = 4      # independent chains
 	chain = DataFrame(
 		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
 	)
+end
+
+# ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
+md"### create empirical dist'n"
+
+# ╔═╡ b9e857ff-efe4-42d2-b9f8-e8e7bc42ea5d
+md"1D histogram for $R$"
+
+# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
+# from edges compute centers of bins.
+function edges_to_centers(edges)
+	n = length(edges)
+	return [(edges[i] + edges[i+1]) / 2 for i = 1:n-1]
+end
+
+# ╔═╡ b88c9af9-c4dd-4fcc-8d60-ac5cf79d0c61
+R_bins = range(0.0, R_max, length=25)
+
+# ╔═╡ 14c5fee2-319a-4914-be2d-1012e473b07d
+hist_R = fit(Histogram, chain[:, "R"], R_bins)
+
+# ╔═╡ 8cc173a6-f078-488e-ae8e-a938ab56c21e
+hist_R.edges[1]
+
+# ╔═╡ c21c5fbf-9b5c-4c1f-907e-a59a8077c437
+edges_to_centers(hist_R.edges[1])
+
+# ╔═╡ 43d22ef7-62c7-4fc0-b753-c814687d5d41
+hist_R.weights
+
+# ╔═╡ 6b581731-7e81-4126-a462-942b24e51059
+md"2D histogram for source location"
+
+# ╔═╡ 70c50c11-9e20-409c-8c61-ffd744bf45a7
+x_bins = collect(0.0:Δx:L+2) .- Δx/2
+
+# ╔═╡ f3210949-996f-40b3-afb4-72b665084fa0
+hist_x₀ = fit(Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_bins, x_bins))
+
+# ╔═╡ 29b702de-747a-4af7-8474-c1ef0df2c2a3
+hist_x₀.weights
+
+# ╔═╡ 71218d02-8e94-45ef-8493-73b7ef437340
+function viz_posterior(hist_R, hist_x₀)
+	fig = Figure()
+
+	# dist'n of R
+	ax_t = Axis(fig[1, 1], xlabel="R [g/L]", ylabel="density")
+	R_bin_centers = edges_to_centers(hist_R.edges[1])
+	stem!(R_bin_centers, hist_R.weights)
+
+	# dist'n of x₀
+	# ax_b = Axis(
+	# 	fig[2, 1], xlabel="x₁ [m]", ylabel="x₂ [m]", aspect=DataAspect()
+	# )
+	# xlims!(ax_b, 0, L)
+	# ylims!(ax_b, 0, L)
+	# hb = hexbin!(
+	# 	ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
+	# )
+	# Colorbar(fig[2, 2], hb, label="density")
+
+	# # show ground-truth
+	# vlines!(ax_t, R, color="red", linestyle=:dash)
+	# scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
+	fig
 end
 
 # ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
@@ -239,6 +308,9 @@ function viz_posterior(chain::DataFrame)
 	fig
 end
 
+# ╔═╡ 3438fcc0-adde-4aa8-9c71-f16d3c563e49
+viz_posterior(hist_R, hist_x₀)
+
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
 
@@ -263,8 +335,23 @@ viz_posterior(chain)
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
-# ╟─1e7e4bad-16a0-40ee-b751-b2f3664f6620
+# ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
+# ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
+# ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
+# ╟─b9e857ff-efe4-42d2-b9f8-e8e7bc42ea5d
+# ╠═065befd1-f652-4925-b1b2-4e847a3884dd
+# ╠═b88c9af9-c4dd-4fcc-8d60-ac5cf79d0c61
+# ╠═14c5fee2-319a-4914-be2d-1012e473b07d
+# ╠═8cc173a6-f078-488e-ae8e-a938ab56c21e
+# ╠═c21c5fbf-9b5c-4c1f-907e-a59a8077c437
+# ╠═43d22ef7-62c7-4fc0-b753-c814687d5d41
+# ╟─6b581731-7e81-4126-a462-942b24e51059
+# ╠═70c50c11-9e20-409c-8c61-ffd744bf45a7
+# ╠═f3210949-996f-40b3-afb4-72b665084fa0
+# ╠═29b702de-747a-4af7-8474-c1ef0df2c2a3
+# ╠═71218d02-8e94-45ef-8493-73b7ef437340
+# ╠═3438fcc0-adde-4aa8-9c71-f16d3c563e49
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
