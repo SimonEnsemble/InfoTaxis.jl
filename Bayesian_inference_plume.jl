@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.3
 
 using Markdown
 using InteractiveUtils
@@ -8,8 +8,11 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI
 end
+
+# ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
+TableOfContents()
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# forward model (also ground-truth)"
@@ -306,8 +309,81 @@ viz_posterior(hist_R, hist_x₀)
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
 
+# ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
+md"# infotaxis"
+
+# ╔═╡ 14b34270-b47f-4f22-9ba4-db294f2c029c
+md"## entropy calcs"
+
+# ╔═╡ baa90d24-6ab4-4ae8-9565-c2302428e9e7
+"""
+Returns the total entropy of the probability field matrix.
+
+* `pr_field::Matrix{Float64}`
+"""
+function entropy(pr_field::Matrix{Float64})
+	return sum([-pr_field[i]*log(pr_field[i]) for i in eachindex(pr_field) if pr_field[i]>0.0])
+end
+
+# ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
+"""
+Sets probability of finding the source at the robot's current coordinates to 0 and renormalizes the probability field.
+
+* `x::Vector{Float64}` - robot's coordinates
+* `pr_field::Matrix{Float64}` - probability field to be updated
+"""
+function miss_source(x::Vector{Float64}, pr_field::Matrix{Float64})
+	pr_field[(Int.(x)...)] = 0.0
+	pr_field .= pr_field/sum(pr_field)
+	return pr_field
+end
+
+# ╔═╡ 5509a7c1-1c91-4dfb-96fc-d5c33a224e73
+"""
+Calculates H(s|a), the expected entropy upon taking action a in belief state s.
+
+* `pr_field::Matrix{Float64}`
+"""
+function expected_entropy(robot_path::Vector{Vector{Float64}}, direction::Symbol, pr_field::Matrix{Float64})
+	@assert a in (:left, :up, :down, :right)
+
+	# make a copy of robot path, and move it
+	test_robot = deepcopy(robot_path)
+	move!(test_robot, direction)
+
+	# calculate probability of missing
+	prob_miss = 1.0 - pr_field[(Int.(test_robot[end])...)]
+
+	# update probability field as if source wasn't found
+	test_map = miss_source(test_robot[end], pr_field)
+
+	#=
+	I think this is where we need to calculate the posterior using the test_map as the prior.
+
+	=#
+
+	# expected_entropy = prob_miss * test_map_posterior
+	
+	return expected_entropy
+	
+end
+
+# ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
+md"## simulate"
+
+# ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
+"""
+TODO:
+input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
+"""
+function sim()
+
+	return argmin(expected_entropy())
+end
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
+# ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
@@ -343,3 +419,10 @@ viz_posterior(chain)
 # ╠═3438fcc0-adde-4aa8-9c71-f16d3c563e49
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
+# ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
+# ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
+# ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
+# ╠═5695ee1e-a532-4a89-bad1-20e859016174
+# ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
+# ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
+# ╠═e278ec3e-c524-48c7-aa27-dd372daea005
