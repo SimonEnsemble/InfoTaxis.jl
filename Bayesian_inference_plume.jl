@@ -359,10 +359,9 @@ function expected_entropy(robot_path::Vector{Vector{Float64}}, direction::Symbol
 
 	#=
 	I think this is where we need to calculate the posterior using the test_map as the prior.
-
 	=#
 
-	# expected_entropy = prob_miss * test_map_posterior
+	# expected_entropy = prob_miss * entropy(test_map_posterior)
 	
 	return expected_entropy
 	
