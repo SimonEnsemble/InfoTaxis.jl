@@ -140,9 +140,10 @@ begin
 
 	move!(robot_path, :up, 5)
 	move!(robot_path, :right, 7)
-	move!(robot_path, :up, 3)
+	# move!(robot_path, :up, 3)
 	
 	data = DataFrame(
+		"time" => 1:length(robot_path),
 		"x [m]" => robot_path,
 		"c [g/m²]" => [measure_concentration(x) for x in robot_path]
 	)
@@ -191,7 +192,6 @@ R_max = 100.0 # g/min
 		(loop thru observations)
 	=#
     for i in 1:nrow(data)
-		ĉᵢ = AutoForwardDiff
         data[i, "c [g/m²]"] ~ Normal(
 			c(data[i, "x [m]"], x₀, R), σ
 		)
@@ -217,11 +217,13 @@ begin
 	)
 end
 
-# ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
-md"### create empirical dist'n"
+# ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
+scatter(
+	chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
+)
 
-# ╔═╡ b9e857ff-efe4-42d2-b9f8-e8e7bc42ea5d
-md"1D histogram for $R$"
+# ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
+md"### create empirical dist'n for source location"
 
 # ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
 # from edges compute centers of bins.
@@ -230,32 +232,22 @@ function edges_to_centers(edges)
 	return [(edges[i] + edges[i+1]) / 2 for i = 1:n-1]
 end
 
-# ╔═╡ b88c9af9-c4dd-4fcc-8d60-ac5cf79d0c61
-R_bins = range(0.0, R_max, length=25)
-
-# ╔═╡ 14c5fee2-319a-4914-be2d-1012e473b07d
-hist_R = fit(Histogram, chain[:, "R"], R_bins)
-
-# ╔═╡ 8cc173a6-f078-488e-ae8e-a938ab56c21e
-hist_R.edges[1]
-
-# ╔═╡ c21c5fbf-9b5c-4c1f-907e-a59a8077c437
-edges_to_centers(hist_R.edges[1])
-
-# ╔═╡ 43d22ef7-62c7-4fc0-b753-c814687d5d41
-hist_R.weights
-
-# ╔═╡ 6b581731-7e81-4126-a462-942b24e51059
-md"2D histogram for source location"
-
 # ╔═╡ 70c50c11-9e20-409c-8c61-ffd744bf45a7
-x_bins = collect(0.0:Δx:L+2) .- Δx/2
+x_edges = collect(0.0:Δx:L+2) .- Δx/2
+
+# ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
+x_bin_centers = edges_to_centers(x_edges)
 
 # ╔═╡ f3210949-996f-40b3-afb4-72b665084fa0
-hist_x₀ = fit(Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_bins, x_bins))
+hist_x₀ = fit(
+	Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
+)
 
 # ╔═╡ 29b702de-747a-4af7-8474-c1ef0df2c2a3
-hist_x₀.weights
+P = hist_x₀.weights / sum(hist_x₀.weights) # posterior distribution
+
+# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ 71218d02-8e94-45ef-8493-73b7ef437340
 function viz_posterior(hist_R, hist_x₀)
@@ -300,7 +292,7 @@ function viz_posterior(chain::DataFrame)
 	hb = hexbin!(
 		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
 	)
-	Colorbar(fig[2, 2], hb, label="density")
+	Colorbar(fig[2, 2], hb, label="count")
 
 	# show ground-truth
 	vlines!(ax_t, R, color="red", linestyle=:dash)
@@ -339,18 +331,14 @@ viz_posterior(chain)
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
+# ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
-# ╟─b9e857ff-efe4-42d2-b9f8-e8e7bc42ea5d
 # ╠═065befd1-f652-4925-b1b2-4e847a3884dd
-# ╠═b88c9af9-c4dd-4fcc-8d60-ac5cf79d0c61
-# ╠═14c5fee2-319a-4914-be2d-1012e473b07d
-# ╠═8cc173a6-f078-488e-ae8e-a938ab56c21e
-# ╠═c21c5fbf-9b5c-4c1f-907e-a59a8077c437
-# ╠═43d22ef7-62c7-4fc0-b753-c814687d5d41
-# ╟─6b581731-7e81-4126-a462-942b24e51059
 # ╠═70c50c11-9e20-409c-8c61-ffd744bf45a7
+# ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
 # ╠═f3210949-996f-40b3-afb4-72b665084fa0
 # ╠═29b702de-747a-4af7-8474-c1ef0df2c2a3
+# ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
 # ╠═71218d02-8e94-45ef-8493-73b7ef437340
 # ╠═3438fcc0-adde-4aa8-9c71-f16d3c563e49
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
