@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.4
 
 using Markdown
 using InteractiveUtils
@@ -8,7 +8,7 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -213,8 +213,8 @@ infer the source location and strength.
 begin
 	prob_model = plume_model(data)
 			
-	nb_samples = 1000 # per chain
-	nb_chains = 4      # independent chains
+	nb_samples = 5000 # per chain
+	nb_chains = 1      # independent chains
 	chain = DataFrame(
 		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
 	)
@@ -228,6 +228,42 @@ scatter(
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
 
+# ╔═╡ a8c1cf59-2afa-4e50-9933-58b716b57808
+x_edges = collect(0.0:Δx:L+2) .- Δx/2
+
+# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
+function chain_to_P(chain::DataFrame, x_edges::Vector{Float64}=x_edges)
+	hist_x₀ = fit(
+		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
+	)
+	return hist_x₀.weights / sum(hist_x₀.weights)
+end
+
+# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+P = chain_to_P(chain)
+
+# ╔═╡ 8d3bb820-7d88-431b-a66b-cc629a9970c9
+sum(P)
+
+# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
+function x_to_bin(x_edges::Vector{Float64}, x::Float64)
+	for b = 1:length(x_edges)-1
+		if x < x_edges[b+1]
+			return b
+		end
+	end
+end
+
+# ╔═╡ cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
+function bin_to_x(x_edges::Vector{FLoat64}, i::Int)
+end
+
+# ╔═╡ 544fcbc4-c222-4876-82fe-d5c92cb18671
+@test x_to_bin(x_edges, 0.5) == 1
+
+# ╔═╡ 8cfe65af-b0f8-4c6c-8cbe-86e80e8c4e58
+@test x_to_bin(x_edges, 1.4) == 2
+
 # ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
 # from edges compute centers of bins.
 function edges_to_centers(edges)
@@ -235,48 +271,11 @@ function edges_to_centers(edges)
 	return [(edges[i] + edges[i+1]) / 2 for i = 1:n-1]
 end
 
-# ╔═╡ 70c50c11-9e20-409c-8c61-ffd744bf45a7
-x_edges = collect(0.0:Δx:L+2) .- Δx/2
-
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
 x_bin_centers = edges_to_centers(x_edges)
 
-# ╔═╡ f3210949-996f-40b3-afb4-72b665084fa0
-hist_x₀ = fit(
-	Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
-)
-
-# ╔═╡ 29b702de-747a-4af7-8474-c1ef0df2c2a3
-P = hist_x₀.weights / sum(hist_x₀.weights) # posterior distribution
-
 # ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
 heatmap(x_bin_centers, x_bin_centers, P)
-
-# ╔═╡ 71218d02-8e94-45ef-8493-73b7ef437340
-function viz_posterior(hist_R, hist_x₀)
-	fig = Figure()
-
-	# dist'n of R
-	ax_t = Axis(fig[1, 1], xlabel="R [g/L]", ylabel="density")
-	R_bin_centers = edges_to_centers(hist_R.edges[1])
-	stem!(R_bin_centers, hist_R.weights)
-
-	# dist'n of x₀
-	# ax_b = Axis(
-	# 	fig[2, 1], xlabel="x₁ [m]", ylabel="x₂ [m]", aspect=DataAspect()
-	# )
-	# xlims!(ax_b, 0, L)
-	# ylims!(ax_b, 0, L)
-	# hb = hexbin!(
-	# 	ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
-	# )
-	# Colorbar(fig[2, 2], hb, label="density")
-
-	# # show ground-truth
-	# vlines!(ax_t, R, color="red", linestyle=:dash)
-	# scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
-	fig
-end
 
 # ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
 function viz_posterior(chain::DataFrame)
@@ -303,9 +302,6 @@ function viz_posterior(chain::DataFrame)
 	fig
 end
 
-# ╔═╡ 3438fcc0-adde-4aa8-9c71-f16d3c563e49
-viz_posterior(hist_R, hist_x₀)
-
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
 
@@ -317,13 +313,15 @@ md"## entropy calcs"
 
 # ╔═╡ baa90d24-6ab4-4ae8-9565-c2302428e9e7
 """
-Returns the total entropy of the probability field matrix.
-
-* `pr_field::Matrix{Float64}`
+entropy of belief state H(s)
+(i.e. entropy of posterior over source location)
 """
-function entropy(pr_field::Matrix{Float64})
-	return sum([-pr_field[i]*log(pr_field[i]) for i in eachindex(pr_field) if pr_field[i]>0.0])
-end
+entropy(P::Matrix{Float64}) = sum(
+	[-P[i] * log2(P[i]) for i in eachindex(P) if P[i] > 0.0]
+)
+
+# ╔═╡ 3c1ae832-650b-4d14-9e01-ef2545166c1d
+entropy(P)
 
 # ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
 """
@@ -340,11 +338,20 @@ end
 
 # ╔═╡ 5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 """
-Calculates H(s|a), the expected entropy upon taking action a in belief state s.
+H(s|a), the expected entropy of X₀ *after* taking action a in belief state s.
 
-* `pr_field::Matrix{Float64}`
+a ∈ {left, right, up, down}
+
+i.e. the expected entropy of successor belief states s':
+ Σ s′ P(s′ | s , a) H(s′)
+
+essentially, we *simulate* taking action a, where the robot takes a move and takes a measurement, then compute the entropy of the posterior after that measurement.
 """
-function expected_entropy(robot_path::Vector{Vector{Float64}}, direction::Symbol, pr_field::Matrix{Float64})
+function expected_entropy(
+	robot_path::Vector{Vector{Float64}}, 
+	direction::Symbol, 
+	P::Matrix{Float64}
+)
 	@assert a in (:left, :up, :down, :right)
 
 	# make a copy of robot path, and move it
@@ -408,19 +415,23 @@ end
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
+# ╠═a8c1cf59-2afa-4e50-9933-58b716b57808
+# ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
+# ╠═e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+# ╠═8d3bb820-7d88-431b-a66b-cc629a9970c9
+# ╠═50830491-6285-4915-b59a-fa5bb7298e51
+# ╠═cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
+# ╠═544fcbc4-c222-4876-82fe-d5c92cb18671
+# ╠═8cfe65af-b0f8-4c6c-8cbe-86e80e8c4e58
 # ╠═065befd1-f652-4925-b1b2-4e847a3884dd
-# ╠═70c50c11-9e20-409c-8c61-ffd744bf45a7
 # ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
-# ╠═f3210949-996f-40b3-afb4-72b665084fa0
-# ╠═29b702de-747a-4af7-8474-c1ef0df2c2a3
 # ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-# ╠═71218d02-8e94-45ef-8493-73b7ef437340
-# ╠═3438fcc0-adde-4aa8-9c71-f16d3c563e49
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
 # ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
 # ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
 # ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
+# ╠═3c1ae832-650b-4d14-9e01-ef2545166c1d
 # ╠═5695ee1e-a532-4a89-bad1-20e859016174
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
