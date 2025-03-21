@@ -104,6 +104,14 @@ measurement noise"
 σ = 0.005 # g/m², the measurement noise
 
 # ╔═╡ 95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
+"""
+returns a noisy concentration reading sampled from our forward model.
+
+* `x::Vector{Float64}` - location where the reading is taking place
+* `x₀::Vector{Float64}` - location of the source
+* `R::Float64` - strength of the source
+* `σ::Float64=0.005` - standard deviation of the gausian noise
+"""
 function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.005)
 	return c(x, x₀, R) + randn() * σ
 end
@@ -356,6 +364,14 @@ i.e. the expected entropy of successor belief states s':
  Σ s′ P(s′ | s , a) H(s′)
 
 essentially, we *simulate* taking action a, where the robot takes a move and takes a measurement, then compute the entropy of the posterior after that measurement.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `direction::Symbol` - for entropy reduction calculation, which direction should the robot consider going.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `data::DataFrame` - current data frame containing sample data.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 """
 function expected_entropy(
 	robot_path::Vector{Vector{Float64}}, 
@@ -408,27 +424,105 @@ function expected_entropy(
 	
 end
 
-# ╔═╡ 19a2b41a-1634-4cf3-a3cc-09458ca54d7f
-P
-
-# ╔═╡ 6da3e9ec-fb78-4283-9199-15cf61b8113e
-robot_path
-
-# ╔═╡ 3db70e66-5d63-4b9b-8208-0ea6ae7edb27
-expected_entropy(robot_path, :up, P, chain, data)
-
 # ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
 md"## simulate"
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+"""
+Given the robot path, returns a tuple of optional directions the robot could travel in next.
 
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+
+"""
+function get_next_steps(
+	robot_path::Vector{Vector{Float64}}, 
+	L::Float64; 
+	Δx::Float64=2.0
+)
+	current_pos = robot_path[end]
+
+	directions = Dict(
+        :up    => [0.0, Δx],
+        :down  => [0.0, -Δx],
+        :left  => [-Δx, 0.0],
+        :right => [Δx, 0.0]
+    )
+
+	visited = Set( (pos[1], pos[2]) for pos in robot_path )
+
+	valid_directions = Tuple(
+        dir for (dir, delta) in directions
+        if let new_pos = current_pos .+ delta
+            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
+            not_visited = (new_pos[1], new_pos[2]) ∉ visited
+            in_bounds && not_visited
+        end
+    )
+
+	return valid_directions
+
+end
+
+# ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
+"""
+Given the robot path, finds the best next direction the robot to travel.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `data::DataFrame` - current data frame containing sample data.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+"""
+function find_opt_choice(
+	robot_path::Vector{Vector{Float64}}, 
+	pr_field::Matrix{Float64},
+	chain::DataFrame,
+	data::DataFrame;
+	num_mcmc_samples::Int64=100,
+	num_mcmc_chains::Int64=1,
+	L::Float64=50.0,
+	Δx::Float64=2.0)
+
+	direction_options = get_next_steps(robot_path, L)
+
+	if length(direction_options) < 1
+		return :nothing
+	end
+
+	min_entropy = Inf
+	best_direction = :nothing
+
+	for direction in direction_options
+		exp_entropy = expected_entropy(
+			robot_path, 
+			direction, 
+			pr_field, 
+			chain, 
+			data,
+			num_mcmc_samples=num_mcmc_samples,
+			num_mcmc_chains=num_mcmc_chains
+)
+		
+		if exp_entropy < min_entropy
+			best_option = direction
+		end
+	end
+		
+	return best_direction
+
+end
 
 # ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
 """
 TODO:
 input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
 """
-function sim()
+function sim(num_steps::Int64)
 
 	return argmin(expected_entropy())
 end
@@ -482,9 +576,7 @@ end
 # ╠═3c1ae832-650b-4d14-9e01-ef2545166c1d
 # ╠═5695ee1e-a532-4a89-bad1-20e859016174
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
-# ╠═19a2b41a-1634-4cf3-a3cc-09458ca54d7f
-# ╠═6da3e9ec-fb78-4283-9199-15cf61b8113e
-# ╠═3db70e66-5d63-4b9b-8208-0ea6ae7edb27
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
