@@ -216,7 +216,7 @@ infer the source location and strength.
 begin
 	prob_model = plume_model(data)
 			
-	nb_samples = 3000 # per chain
+	nb_samples = 100 # per chain
 	nb_chains = 1      # independent chains
 	chain = DataFrame(
 		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
@@ -363,7 +363,7 @@ function expected_entropy(
 	pr_field::Matrix{Float64},
 	chain::DataFrame,
 	data::DataFrame;
-	num_mcmc_samples::Int64=500,
+	num_mcmc_samples::Int64=100,
 	num_mcmc_chains::Int64=1
 )
 	@assert direction in (:left, :up, :down, :right)
