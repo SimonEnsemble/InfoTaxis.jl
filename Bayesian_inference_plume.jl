@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.4
+# v0.20.3
 
 using Markdown
 using InteractiveUtils
@@ -104,12 +104,12 @@ measurement noise"
 σ = 0.005 # g/m², the measurement noise
 
 # ╔═╡ 95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
-function measure_concentration(x::Vector{Float64})
+function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.005)
 	return c(x, x₀, R) + randn() * σ
 end
 
 # ╔═╡ 2818e9b8-8328-4759-ba7a-638ed28329d0
-measure_concentration([20.0, 10.0])
+measure_concentration([20.0, 10.0], x₀, R)
 
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
@@ -148,9 +148,12 @@ begin
 	data = DataFrame(
 		"time" => 1:length(robot_path),
 		"x [m]" => robot_path,
-		"c [g/m²]" => [measure_concentration(x) for x in robot_path]
+		"c [g/m²]" => [measure_concentration(x, x₀, R) for x in robot_path]
 	)
 end
+
+# ╔═╡ 0d01df41-c0f3-4441-a9af-75d239820ba8
+data
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 function viz_data(data::DataFrame)	    
@@ -213,11 +216,18 @@ infer the source location and strength.
 begin
 	prob_model = plume_model(data)
 			
-	nb_samples = 5000 # per chain
+	nb_samples = 3000 # per chain
 	nb_chains = 1      # independent chains
 	chain = DataFrame(
 		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
 	)
+end
+
+# ╔═╡ 388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
+begin
+
+	
+	chain[1, :]
 end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
@@ -350,9 +360,13 @@ essentially, we *simulate* taking action a, where the robot takes a move and tak
 function expected_entropy(
 	robot_path::Vector{Vector{Float64}}, 
 	direction::Symbol, 
-	P::Matrix{Float64}
+	pr_field::Matrix{Float64},
+	chain::DataFrame,
+	data::DataFrame;
+	num_mcmc_samples::Int64=500,
+	num_mcmc_chains::Int64=1
 )
-	@assert a in (:left, :up, :down, :right)
+	@assert direction in (:left, :up, :down, :right)
 
 	# make a copy of robot path, and move it
 	test_robot = deepcopy(robot_path)
@@ -363,19 +377,51 @@ function expected_entropy(
 
 	# update probability field as if source wasn't found
 	test_map = miss_source(test_robot[end], pr_field)
+	exp_entropy = 0.0
 
-	#=
-	I think this is where we need to calculate the posterior using the test_map as the prior.
-	=#
+	x_test = test_robot[end]
+	for row in eachrow(chain)
+		x₀_test = [row["x₀[1]"], row["x₀[2]"]]
+		R_test = row["R"]
 
-	# expected_entropy = prob_miss * entropy(test_map_posterior)
-	
-	return expected_entropy
+		c_test = c(x_test, x₀_test, R_test)
+
+		test_data_row = DataFrame(
+			"time" => [length(data[:, 1])+1],
+			"x [m]" => [x_test],
+			"c [g/m²]" => [c_test]
+		)
+
+		test_data = vcat(data, test_data_row)
+		test_prob_model = plume_model(test_data)
+		test_chain = DataFrame(
+			sample(test_prob_model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+		)
+
+		P_test = chain_to_P(test_chain)
+		exp_entropy += entropy(P_test)
+	end
+
+	exp_entropy = exp_entropy / length(chain[:, 1])
+
+	return exp_entropy * prob_miss
 	
 end
 
+# ╔═╡ 19a2b41a-1634-4cf3-a3cc-09458ca54d7f
+P
+
+# ╔═╡ 6da3e9ec-fb78-4283-9199-15cf61b8113e
+robot_path
+
+# ╔═╡ 3db70e66-5d63-4b9b-8208-0ea6ae7edb27
+expected_entropy(robot_path, :up, P, chain, data)
+
 # ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
 md"## simulate"
+
+# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+
 
 # ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
 """
@@ -407,12 +453,14 @@ end
 # ╠═2818e9b8-8328-4759-ba7a-638ed28329d0
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
+# ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
 # ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
+# ╠═388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 # ╠═a8c1cf59-2afa-4e50-9933-58b716b57808
@@ -434,5 +482,9 @@ end
 # ╠═3c1ae832-650b-4d14-9e01-ef2545166c1d
 # ╠═5695ee1e-a532-4a89-bad1-20e859016174
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
+# ╠═19a2b41a-1634-4cf3-a3cc-09458ca54d7f
+# ╠═6da3e9ec-fb78-4283-9199-15cf61b8113e
+# ╠═3db70e66-5d63-4b9b-8208-0ea6ae7edb27
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
+# ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
