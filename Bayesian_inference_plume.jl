@@ -273,7 +273,7 @@ function x_to_bin(x_edges::Vector{Float64}, x::Float64)
 end
 
 # ╔═╡ cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
-function bin_to_x(x_edges::Vector{FLoat64}, i::Int)
+function bin_to_x(x_edges::Vector{Float64}, i::Int)
 end
 
 # ╔═╡ 544fcbc4-c222-4876-82fe-d5c92cb18671
@@ -465,6 +465,9 @@ function get_next_steps(
 
 end
 
+# ╔═╡ 5e79dbf9-da8a-444a-ae7e-ed18f00d0090
+get_next_steps([[1.0, 1.0]], 50.0)
+
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
 """
 Given the robot path, finds the best next direction the robot to travel.
@@ -491,6 +494,7 @@ function find_opt_choice(
 	direction_options = get_next_steps(robot_path, L)
 
 	if length(direction_options) < 1
+		@warn "found no viable direction options, returning nothing"
 		return :nothing
 	end
 
@@ -509,7 +513,7 @@ function find_opt_choice(
 )
 		
 		if exp_entropy < min_entropy
-			best_option = direction
+			best_direction = direction
 		end
 	end
 		
@@ -522,10 +526,70 @@ end
 TODO:
 input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
 """
-function sim(num_steps::Int64)
+function sim(
+	num_steps::Int64; 
+	robot_start::Vector{Float64}=[1.0, 1.0], 
+	num_mcmc_samples::Int64=100,
+	num_mcmc_chains::Int64=1,
+	L::Float64=50.0,
+	Δx::Float64=2.0,
+	x₀::Vector{Float64}=[25.0, 4.0],
+	R::Float64=10.0
+)
+	sim_results = Dict()
 
-	return argmin(expected_entropy())
+	#times = 1:num_steps
+	#xs = robot_start
+	c_start = measure_concentration(robot_start, x₀, R)
+
+	sim_data = DataFrame(
+		"time" => [1.0],
+		"x [m]" => [robot_start],
+		"c [g/m²]" => [c_start]
+	)
+
+	robot_path = [robot_start]
+
+	for iter = 1:num_steps
+		model = plume_model(sim_data)
+		model_chain = DataFrame(
+			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+		)
+		P = chain_to_P(model_chain)
+		
+		best_direction = find_opt_choice(
+			robot_path, 
+			P,
+			model_chain,
+			sim_data,
+			num_mcmc_samples=num_mcmc_samples,
+			num_mcmc_chains=num_mcmc_chains,
+			L=L,
+			Δx=Δx
+		)
+
+		if best_direction == :nothing
+			@warn "iteration $(iter) found best_direction to be :nothing"
+			return sim_data
+		end
+			
+
+		move!(robot_path, best_direction)
+		c_measurement = measure_concentration(robot_path[end], x₀, R)
+		push!(
+			sim_data,
+			Dict("time" => iter+1.0, 
+			"x [m]" => robot_path[end], 
+			"c [g/m²]" => c_measurement
+			)
+		)
+	end
+
+	return sim_data
 end
+
+# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
+simulation_data = sim(10)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -578,5 +642,7 @@ end
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╠═5e79dbf9-da8a-444a-ae7e-ed18f00d0090
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
+# ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
