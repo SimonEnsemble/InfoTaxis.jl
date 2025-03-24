@@ -112,7 +112,7 @@ returns a noisy concentration reading sampled from our forward model.
 * `R::Float64` - strength of the source
 * `σ::Float64=0.005` - standard deviation of the gausian noise
 """
-function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.005)
+function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.0005)
 	return c(x, x₀, R) + randn() * σ
 end
 
@@ -231,6 +231,9 @@ begin
 	)
 end
 
+# ╔═╡ 96ce5328-f158-418c-96f6-1422b327b143
+mean(chain[:, "x₀[1]"])
+
 # ╔═╡ 388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
 begin
 
@@ -338,8 +341,15 @@ entropy(P::Matrix{Float64}) = sum(
 	[-P[i] * log2(P[i]) for i in eachindex(P) if P[i] > 0.0]
 )
 
-# ╔═╡ 3c1ae832-650b-4d14-9e01-ef2545166c1d
-entropy(P)
+# ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
+md"## simulate"
+
+# ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
+function pos_to_index(pos::Vector{Float64}; Δx::Float64=2.0)
+    x₁ = Int(floor((pos[1] + 1) / Δx)) + 1
+    x₂ = Int(floor((pos[2] + 1) / Δx)) + 1
+    return (x₁, x₂)
+end
 
 # ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
 """
@@ -349,7 +359,8 @@ Sets probability of finding the source at the robot's current coordinates to 0 a
 * `pr_field::Matrix{Float64}` - probability field to be updated
 """
 function miss_source(x::Vector{Float64}, pr_field::Matrix{Float64})
-	pr_field[(Int.(x)...)] = 0.0
+	indicies = pos_to_index(x)
+	pr_field[(indicies...)] = 0.0
 	pr_field .= pr_field/sum(pr_field)
 	return pr_field
 end
@@ -380,7 +391,8 @@ function expected_entropy(
 	chain::DataFrame,
 	data::DataFrame;
 	num_mcmc_samples::Int64=100,
-	num_mcmc_chains::Int64=1
+	num_mcmc_chains::Int64=1,
+	use_avg::Bool=true
 )
 	@assert direction in (:left, :up, :down, :right)
 
@@ -389,17 +401,19 @@ function expected_entropy(
 	move!(test_robot, direction)
 
 	# calculate probability of missing
-	prob_miss = 1.0 - pr_field[(Int.(test_robot[end])...)]
+	indicies = pos_to_index(test_robot[end])
+	prob_miss = 1.0 - pr_field[(indicies...)]
 
 	# update probability field as if source wasn't found
 	test_map = miss_source(test_robot[end], pr_field)
 	exp_entropy = 0.0
 
 	x_test = test_robot[end]
-	for row in eachrow(chain)
-		x₀_test = [row["x₀[1]"], row["x₀[2]"]]
-		R_test = row["R"]
 
+	if use_avg
+		mean(chain[:, "x₀[1]"])
+		x₀_test = [mean(chain[:, "x₀[1]"]), mean(chain[:, "x₀[2]"])]
+		R_test = mean(chain[:, "R"])
 		c_test = c(x_test, x₀_test, R_test)
 
 		test_data_row = DataFrame(
@@ -415,17 +429,37 @@ function expected_entropy(
 		)
 
 		P_test = chain_to_P(test_chain)
-		exp_entropy += entropy(P_test)
+		return entropy(P_test)
+
+	else
+		for row in eachrow(chain)
+			x₀_test = [row["x₀[1]"], row["x₀[2]"]]
+			R_test = row["R"]
+			c_test = c(x_test, x₀_test, R_test)
+	
+			test_data_row = DataFrame(
+				"time" => [length(data[:, 1])+1],
+				"x [m]" => [x_test],
+				"c [g/m²]" => [c_test]
+			)
+	
+			test_data = vcat(data, test_data_row)
+			test_prob_model = plume_model(test_data)
+			test_chain = DataFrame(
+				sample(test_prob_model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+			)
+	
+			P_test = chain_to_P(test_chain)
+			exp_entropy += entropy(P_test)
+		end
+		exp_entropy = exp_entropy / length(chain[:, 1])
+
+		return exp_entropy * prob_miss
 	end
 
-	exp_entropy = exp_entropy / length(chain[:, 1])
 
-	return exp_entropy * prob_miss
 	
 end
-
-# ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
-md"## simulate"
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -439,7 +473,8 @@ Given the robot path, returns a tuple of optional directions the robot could tra
 function get_next_steps(
 	robot_path::Vector{Vector{Float64}}, 
 	L::Float64; 
-	Δx::Float64=2.0
+	Δx::Float64=2.0,
+	allow_overlap::Bool=false
 )
 	current_pos = robot_path[end]
 
@@ -452,21 +487,28 @@ function get_next_steps(
 
 	visited = Set( (pos[1], pos[2]) for pos in robot_path )
 
-	valid_directions = Tuple(
-        dir for (dir, delta) in directions
-        if let new_pos = current_pos .+ delta
-            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
-            not_visited = (new_pos[1], new_pos[2]) ∉ visited
-            in_bounds && not_visited
-        end
-    )
+	if allow_overlap
+		valid_directions = Tuple(
+	        dir for (dir, delta) in directions
+	        if let new_pos = current_pos .+ delta
+	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
+	            in_bounds
+	        end
+	    )
+	else
+		valid_directions = Tuple(
+	        dir for (dir, delta) in directions
+	        if let new_pos = current_pos .+ delta
+	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
+	            not_visited = (new_pos[1], new_pos[2]) ∉ visited
+	            in_bounds && not_visited
+	        end
+	    )
+	end
 
 	return valid_directions
 
 end
-
-# ╔═╡ 5e79dbf9-da8a-444a-ae7e-ed18f00d0090
-get_next_steps([[1.0, 1.0]], 50.0)
 
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
 """
@@ -489,9 +531,11 @@ function find_opt_choice(
 	num_mcmc_samples::Int64=100,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
-	Δx::Float64=2.0)
+	Δx::Float64=2.0,
+	use_avg::Bool=true,
+	allow_overlap::Bool=false)
 
-	direction_options = get_next_steps(robot_path, L)
+	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
 
 	if length(direction_options) < 1
 		@warn "found no viable direction options, returning nothing"
@@ -509,12 +553,28 @@ function find_opt_choice(
 			chain, 
 			data,
 			num_mcmc_samples=num_mcmc_samples,
-			num_mcmc_chains=num_mcmc_chains
-)
+			num_mcmc_chains=num_mcmc_chains,
+			use_avg=use_avg
+	)
 		
 		if exp_entropy < min_entropy
 			best_direction = direction
+			min_entropy = exp_entropy
 		end
+	end
+
+	if best_direction == :nothing
+		return find_opt_choice(
+			robot_path, 
+			pr_field,
+			chain,
+			data,
+			num_mcmc_samples=num_mcmc_samples,
+			num_mcmc_chains=num_mcmc_chains,
+			L=L,
+			Δx=Δx,
+			use_avg=use_avg,
+			allow_overlap=true)
 	end
 		
 	return best_direction
@@ -528,13 +588,14 @@ input should be starting location and a prior. It should check the information g
 """
 function sim(
 	num_steps::Int64; 
-	robot_start::Vector{Float64}=[1.0, 1.0], 
+	robot_start::Vector{Float64}=[0.0, 0.0], 
 	num_mcmc_samples::Int64=100,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
 	Δx::Float64=2.0,
 	x₀::Vector{Float64}=[25.0, 4.0],
-	R::Float64=10.0
+	R::Float64=10.0,
+	use_avg::Bool=true
 )
 	sim_results = Dict()
 
@@ -565,7 +626,8 @@ function sim(
 			num_mcmc_samples=num_mcmc_samples,
 			num_mcmc_chains=num_mcmc_chains,
 			L=L,
-			Δx=Δx
+			Δx=Δx,
+			use_avg=use_avg
 		)
 
 		if best_direction == :nothing
@@ -589,7 +651,10 @@ function sim(
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data = sim(10)
+simulation_data = sim(50, num_mcmc_samples=4000)
+
+# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
+viz_data(simulation_data)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -618,6 +683,7 @@ simulation_data = sim(10)
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
+# ╠═96ce5328-f158-418c-96f6-1422b327b143
 # ╠═388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
@@ -637,12 +703,12 @@ simulation_data = sim(10)
 # ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
 # ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
 # ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
-# ╠═3c1ae832-650b-4d14-9e01-ef2545166c1d
 # ╠═5695ee1e-a532-4a89-bad1-20e859016174
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
+# ╠═83052e75-db08-4e0a-8c77-35487c612dae
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
-# ╠═5e79dbf9-da8a-444a-ae7e-ed18f00d0090
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
+# ╠═cf110412-747d-44fa-8ab9-991b863eecb3
