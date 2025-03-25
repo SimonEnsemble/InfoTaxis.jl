@@ -172,6 +172,17 @@ function viz_data(data::DataFrame)
 	    xlabel="x₁", 
 	    ylabel="x₂"
 	)
+	#=
+	sc = scatter!(
+		[row["x [m]"][1] for row in eachrow(data)],
+		[row["x [m]"][2] for row in eachrow(data)],
+		color=[row["c [g/m²]"][1] for row in eachrow(data)],
+		colormap=colormap,
+		strokewidth=2
+	)=#
+	lines!(	[row["x [m]"][1] for row in eachrow(data)],
+		[row["x [m]"][2] for row in eachrow(data)],
+		color=[row["c [g/m²]"][1] for row in eachrow(data)], colormap=colormap)
 	sc = scatter!(
 		[row["x [m]"][1] for row in eachrow(data)],
 		[row["x [m]"][2] for row in eachrow(data)],
@@ -510,6 +521,9 @@ function get_next_steps(
 
 end
 
+# ╔═╡ a9efb68a-8b6d-4175-a46b-112267bb8846
+
+
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
 """
 Given the robot path, finds the best next direction the robot to travel.
@@ -537,13 +551,15 @@ function find_opt_choice(
 
 	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
 
-	if length(direction_options) < 1
-		@warn "found no viable direction options, returning nothing"
+	if length(direction_options) < 1 && allow_overlap == true
+		@warn "found no viable direction options with overlap allowed, returning nothing"
 		return :nothing
 	end
 
 	min_entropy = Inf
 	best_direction = :nothing
+	entropies = Dict(dir => Inf for dir in direction_options)
+	
 
 	for direction in direction_options
 		exp_entropy = expected_entropy(
@@ -556,6 +572,7 @@ function find_opt_choice(
 			num_mcmc_chains=num_mcmc_chains,
 			use_avg=use_avg
 	)
+		entropies[direction] = exp_entropy
 		
 		if exp_entropy < min_entropy
 			best_direction = direction
@@ -563,7 +580,7 @@ function find_opt_choice(
 		end
 	end
 
-	if best_direction == :nothing
+	if best_direction == :nothing && allow_overlap == false
 		return find_opt_choice(
 			robot_path, 
 			pr_field,
@@ -576,8 +593,26 @@ function find_opt_choice(
 			use_avg=use_avg,
 			allow_overlap=true)
 	end
-		
+
+	if best_direction == :nothing
+		if all(isinf, values(entropies))
+			@warn "all direction options returning infinty, returning random direction choice from $(direction_options) at current location$(robot_path[end])."
+			return rand(direction_options)
+		end
+	end
+	
 	return best_direction
+
+end
+
+# ╔═╡ d22c453a-d215-4b28-ad4a-82c257852b23
+rand((:up, :down))
+
+# ╔═╡ 77371da6-0917-4169-825d-d13ead7138e5
+begin
+d = Dict(:a => -Inf, :b => Inf, :c => Inf)
+
+all(isinf, values(d))  # returns true
 
 end
 
@@ -651,7 +686,13 @@ function sim(
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data = sim(50, num_mcmc_samples=4000)
+simulation_data = sim(150, num_mcmc_samples=4000)
+
+# ╔═╡ f33945ab-255d-49da-aa34-403cb1e31e69
+get_next_steps(simulation_data[:, "x [m]"], L, allow_overlap=true)
+
+# ╔═╡ 5c16e17d-6489-46bf-a58a-167a351d6a68
+simulation_data[:, "x [m]"]
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data)
@@ -708,7 +749,12 @@ viz_data(simulation_data)
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═83052e75-db08-4e0a-8c77-35487c612dae
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╠═f33945ab-255d-49da-aa34-403cb1e31e69
+# ╠═5c16e17d-6489-46bf-a58a-167a351d6a68
+# ╠═a9efb68a-8b6d-4175-a46b-112267bb8846
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
+# ╠═d22c453a-d215-4b28-ad4a-82c257852b23
+# ╠═77371da6-0917-4169-825d-d13ead7138e5
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
