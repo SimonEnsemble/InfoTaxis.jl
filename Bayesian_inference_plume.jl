@@ -496,7 +496,12 @@ function get_next_steps(
         :right => [Δx, 0.0]
     )
 
-	visited = Set( (pos[1], pos[2]) for pos in robot_path )
+	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
+	if length(robot_path) > 1
+		visited = (robot_path[end-1])
+	else
+		visited = ()
+	end
 
 	if allow_overlap
 		valid_directions = Tuple(
@@ -520,9 +525,6 @@ function get_next_steps(
 	return valid_directions
 
 end
-
-# ╔═╡ a9efb68a-8b6d-4175-a46b-112267bb8846
-
 
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
 """
@@ -605,17 +607,6 @@ function find_opt_choice(
 
 end
 
-# ╔═╡ d22c453a-d215-4b28-ad4a-82c257852b23
-rand((:up, :down))
-
-# ╔═╡ 77371da6-0917-4169-825d-d13ead7138e5
-begin
-d = Dict(:a => -Inf, :b => Inf, :c => Inf)
-
-all(isinf, values(d))  # returns true
-
-end
-
 # ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
 """
 TODO:
@@ -647,6 +638,10 @@ function sim(
 	robot_path = [robot_start]
 
 	for iter = 1:num_steps
+		if norm([robot_path[end][i] - x₀[i] for i=1:2]) < Δx
+			@info "Source found at step $(iter), robot at location $(robot_path[end])"
+			break
+		end
 		model = plume_model(sim_data)
 		model_chain = DataFrame(
 			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
@@ -685,14 +680,11 @@ function sim(
 	return sim_data
 end
 
+# ╔═╡ 2979f681-1652-49a2-ac97-fff0d7464f89
+norm([-1.0, -2.0])
+
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
 simulation_data = sim(150, num_mcmc_samples=4000)
-
-# ╔═╡ f33945ab-255d-49da-aa34-403cb1e31e69
-get_next_steps(simulation_data[:, "x [m]"], L, allow_overlap=true)
-
-# ╔═╡ 5c16e17d-6489-46bf-a58a-167a351d6a68
-simulation_data[:, "x [m]"]
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data)
@@ -749,12 +741,8 @@ viz_data(simulation_data)
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═83052e75-db08-4e0a-8c77-35487c612dae
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
-# ╠═f33945ab-255d-49da-aa34-403cb1e31e69
-# ╠═5c16e17d-6489-46bf-a58a-167a351d6a68
-# ╠═a9efb68a-8b6d-4175-a46b-112267bb8846
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
-# ╠═d22c453a-d215-4b28-ad4a-82c257852b23
-# ╠═77371da6-0917-4169-825d-d13ead7138e5
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
+# ╠═2979f681-1652-49a2-ac97-fff0d7464f89
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
