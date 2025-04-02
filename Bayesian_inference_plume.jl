@@ -102,7 +102,7 @@ md"
 measurement noise"
 
 # ╔═╡ c5bcd369-b04c-47d7-b85e-3d51b04b7506
-σ = 0.005 # g/m², the measurement noise
+σ = 0.05 # g/m², the measurement noise
 
 # ╔═╡ 95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
 """
@@ -165,7 +165,7 @@ end
 data
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=false)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -183,7 +183,7 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	)=#
 	lines!(	[row["x [m]"][1] for row in eachrow(data)],
 		[row["x [m]"][2] for row in eachrow(data)],
-		color=[row["c [g/m²]"][1] for row in eachrow(data)], colormap=colormap)
+		color=[ColorSchemes.Gray(i) for i in range(0, stop=0.7, length=nrow(data))], linewidth=5)
 	sc = scatter!(
 		[row["x [m]"][1] for row in eachrow(data)],
 		[row["x [m]"][2] for row in eachrow(data)],
@@ -833,6 +833,9 @@ end
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
 simulation_data = sim(150, method="thompson")
 
+# ╔═╡ bd2a8854-3267-416e-a1b0-d060dc4bb094
+[ColorSchemes.Gray(i) for i in range(0, stop=1, length=4)]
+
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data, source=x₀)
 
@@ -894,4 +897,5 @@ viz_data(simulation_data, source=x₀)
 # ╠═76a9cb27-7cde-44a1-b845-e07cf7a8fa44
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
+# ╠═bd2a8854-3267-416e-a1b0-d060dc4bb094
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
