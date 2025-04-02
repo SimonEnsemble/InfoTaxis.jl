@@ -27,6 +27,7 @@ begin
 	
 	# velocity of wind
 	v = [-5.0, 15.0] # m/s
+	#v = [-0.0, 0.0] # m/s
 	
 	# diffusion coefficient
 	D = 25.0 # m²/min
@@ -164,7 +165,7 @@ end
 data
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -190,6 +191,12 @@ function viz_data(data::DataFrame)
 		colormap=colormap,
 		strokewidth=2
 	)
+	if ! isnothing(source)
+		scatter!([source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+
+		#axislegend(location=:tr)
+	end
+	
 	xlims!(0-Δx, L+Δx)
 	ylims!(0-Δx, L+Δx)
 	Colorbar(fig[1, 2], sc, label="concentration c(x₁, x₂) [g/m²]")
@@ -197,7 +204,7 @@ function viz_data(data::DataFrame)
 end
 
 # ╔═╡ d38aeeca-4e5a-40e1-9171-0a187e84eb69
-viz_data(data)
+viz_data(data, source=x₀)
 
 # ╔═╡ 26a4354f-826e-43bb-9f52-eea54cc7e30f
 R_max = 100.0 # g/min
@@ -235,7 +242,7 @@ infer the source location and strength.
 begin
 	prob_model = plume_model(data)
 			
-	nb_samples = 100 # per chain
+	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
 	chain = DataFrame(
 		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
@@ -253,9 +260,17 @@ begin
 end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-scatter(
+begin
+	local fig = Figure()
+	local ax = Axis(fig[1, 1])
+scatter!(ax,
 	chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
 )
+	scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
+	axislegend(ax, location=:tr)
+	
+	fig
+end
 
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
@@ -472,6 +487,9 @@ function expected_entropy(
 	
 end
 
+# ╔═╡ 0780925f-f0b3-4642-b3ea-dc523077fe90
+π
+
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
 Given the robot path, returns a tuple of optional directions the robot could travel in next.
@@ -498,7 +516,7 @@ function get_next_steps(
 
 	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
 	if length(robot_path) > 1
-		visited = (robot_path[end-1])
+		visited = Set((pos[1], pos[2]) for pos in [robot_path[end-1]])
 	else
 		visited = ()
 	end
@@ -528,7 +546,7 @@ end
 
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
 """
-Given the robot path, finds the best next direction the robot to travel.
+Given the robot path, finds the best next direction the robot to travel using the infotaxis metric.
 
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
 * `pr_field::Matrix{Float64}` - current posterior for the source location.
@@ -538,8 +556,10 @@ Given the robot path, finds the best next direction the robot to travel.
 * `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 * `L::Float64` - the width/length of the space being explored.
 * `Δx::Float64=2.0` - step size of the robot.
+* `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 """
-function find_opt_choice(
+function infotaxis(
 	robot_path::Vector{Vector{Float64}}, 
 	pr_field::Matrix{Float64},
 	chain::DataFrame,
@@ -583,7 +603,7 @@ function find_opt_choice(
 	end
 
 	if best_direction == :nothing && allow_overlap == false
-		return find_opt_choice(
+		return infotaxis(
 			robot_path, 
 			pr_field,
 			chain,
@@ -607,6 +627,131 @@ function find_opt_choice(
 
 end
 
+# ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
+"""
+Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `data::DataFrame` - current data frame containing sample data.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+* `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
+"""
+function thompson_sampling(
+	robot_path::Vector{Vector{Float64}}, 
+	chain::DataFrame;
+	L::Float64=50.0,
+	Δx::Float64=2.0,
+	allow_overlap::Bool=false)
+
+	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
+
+	directions = Dict(
+        :up    => [0.0, Δx],
+        :down  => [0.0, -Δx],
+        :left  => [-Δx, 0.0],
+        :right => [Δx, 0.0]
+    )
+
+	if length(direction_options) < 1 && allow_overlap == true
+		@warn "found no viable direction options with overlap allowed, returning nothing"
+		return :nothing
+	end
+
+	best_direction = :nothing
+	greedy_dist = Inf
+
+	#randomly sample from the chain
+	rand_θ = chain[rand(1:nrow(chain)), :]
+	loc = robot_path[end]
+
+	for direction in direction_options
+		new_loc = loc .+ directions[direction]
+		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
+		if dist < greedy_dist
+			greedy_dist = dist
+			best_direction = direction
+		end
+	end
+
+	if best_direction == :nothing && allow_overlap == false
+		@warn "best direction == nothing, switching to allow overlap"
+		return thompson_sampling(
+			robot_path, 
+			chain,
+			L=L,
+			Δx=Δx,
+			allow_overlap=true)
+	end
+	
+	return best_direction
+
+end
+
+# ╔═╡ 76a9cb27-7cde-44a1-b845-e07cf7a8fa44
+"""
+Given the robot path, finds the best next direction the robot to travel using the method indicated (infotaxis or thompson)
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `data::DataFrame` - current data frame containing sample data.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+* `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
+* `method::String="infotaxis"` - the method to use for decision making. Must be either `"infotaxis"` or `"thompson"`.
+"""
+function find_opt_choice(
+	robot_path::Vector{Vector{Float64}}, 
+	pr_field::Matrix{Float64},
+	chain::DataFrame,
+	data::DataFrame;
+	num_mcmc_samples::Int64=100,
+	num_mcmc_chains::Int64=1,
+	L::Float64=50.0,
+	Δx::Float64=2.0,
+	use_avg::Bool=true,
+	allow_overlap::Bool=false,
+	method::String="infotaxis")
+
+	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
+
+	if method == "infotaxis"
+		return infotaxis(
+			robot_path, 
+			P,
+			chain,
+			sim_data,
+			num_mcmc_samples=num_mcmc_samples,
+			num_mcmc_chains=num_mcmc_chains,
+			L=L,
+			Δx=Δx,
+			use_avg=use_avg
+		)
+
+	elseif method == "thompson"
+		return thompson_sampling(
+			robot_path, 
+			chain,
+			L=L,
+			Δx=Δx
+		)
+
+	else
+		error("invalid method error, please check conditionals as this error code should not be reachable.")
+	end
+
+
+end
+
 # ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
 """
 TODO:
@@ -621,8 +766,12 @@ function sim(
 	Δx::Float64=2.0,
 	x₀::Vector{Float64}=[25.0, 4.0],
 	R::Float64=10.0,
-	use_avg::Bool=true
+	use_avg::Bool=true,
+	method::String="infotaxis"
 )
+
+	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
+	
 	sim_results = Dict()
 
 	#times = 1:num_steps
@@ -657,7 +806,8 @@ function sim(
 			num_mcmc_chains=num_mcmc_chains,
 			L=L,
 			Δx=Δx,
-			use_avg=use_avg
+			use_avg=use_avg,
+			method=method
 		)
 
 		if best_direction == :nothing
@@ -680,14 +830,11 @@ function sim(
 	return sim_data
 end
 
-# ╔═╡ 2979f681-1652-49a2-ac97-fff0d7464f89
-norm([-1.0, -2.0])
-
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data = sim(150, num_mcmc_samples=4000)
+simulation_data = sim(150, method="thompson")
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-viz_data(simulation_data)
+viz_data(simulation_data, source=x₀)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -740,9 +887,11 @@ viz_data(simulation_data)
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═83052e75-db08-4e0a-8c77-35487c612dae
+# ╠═0780925f-f0b3-4642-b3ea-dc523077fe90
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
+# ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
+# ╠═76a9cb27-7cde-44a1-b845-e07cf7a8fa44
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
-# ╠═2979f681-1652-49a2-ac97-fff0d7464f89
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
