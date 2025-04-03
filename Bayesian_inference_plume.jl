@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.3
+# v0.20.5
 
 using Markdown
 using InteractiveUtils
@@ -8,11 +8,25 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, GasDispersion
+end
+
+# ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
+begin
+	#=
+	#find simple atmosphere in src
+	src_dir = dirname(pathof(GasDispersion))
+	target_file_dir = joinpath(src_dir, "base")
+	target_file = joinpath(target_file_dir, "simple_atmosphere.jl")
+	name ="C:\Users\paulm\.julia\packages\GasDispersion\WMkDx\src\base\simple_atmosphere.jl"
+	include(name)=#
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
+
+# ╔═╡ c725ec90-8c76-4b1b-be17-e8d815f6e28b
+pathof(GasDispersion)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# forward model (also ground-truth)"
@@ -54,15 +68,128 @@ end
 # ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 md"view c as a function of x₀ and R, the unknowns."
 
+# ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
+
+
+# ╔═╡ 7bb3a2a2-bceb-411e-bc51-fe90987c716b
+md"## PDE solution"
+
 # ╔═╡ a2fb66d1-ae8a-46ca-ab56-5ba934c22360
-function c(x::Vector{Float64}, x₀, R) # no type assertions for Turing.jl
+function c_pde(x::Vector{Float64}, x₀, R) # no type assertions for Turing.jl
 	# units R / d [=] g/min / (m²/min) [] = g/m²
 	return R / (2 * π * D) * besselk(0, κ * norm(x - x₀)) * 
 	        exp(dot(v, x - x₀) / (2 * D))
 end
 
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
-c(x₀, x₀, R) # warning: diverges at center.
+c_pde(x₀, x₀, R) # warning: diverges at center.
+
+# ╔═╡ f1e61610-4417-4617-b967-f1299b3aa726
+md"## GasDispersion analytical solution"
+
+# ╔═╡ 97155de1-4bc7-4fde-afe4-5d20ae76d0d9
+function substance(name::String)
+
+	R = 8.314 #J/(mol·K)
+	P = 101325  # Pa (standard atmospheric pressure)
+	T = 273.15  # K (standard temperature)
+	
+	if name == "VX" || name == "vx"
+		mw = 0.267368 #kg/mol
+		ρ = 1008.3 #kg/m³
+		k=1.07 #estimate of Cₚ/Cᵥ for heavy organic gas
+		vapor_pr = 0.083993 #Pa
+		bp = 571.0
+		latent_h = 291358.73 #J/kg
+		gas_heat_cap = 1561.157 #J/kg/K
+		liquid_heat_cap = 1883.209 #J/kg/K
+	elseif name == "sarin"
+		mw = 0.140093 #kg/mol
+		ρ = 1094.3 #kg/m³
+		k=1.1 #estimate of Cₚ/Cᵥ for heavy organic gas
+		vapor_pr = 570.619 #Pa
+		bp = 420.0
+		latent_h = 262682.27 #J/kg
+		gas_heat_cap = 1271.318 #J/kg/K
+		liquid_heat_cap = 1584.517 #J/kg/K
+	end
+
+	return Substance(
+		name=name,
+		#molar_weight=mw,
+		liquid_density=ρ,
+		gas_density = (P * mw) / (R * T),
+		#vapor_pressure=vapor_pr,
+		#k=k,
+		boiling_temp=bp,
+		latent_heat=latent_h,
+		gas_heat_capacity=gas_heat_cap,
+		liquid_heat_capacity=liquid_heat_cap
+	)
+
+end
+
+# ╔═╡ a1e9fc89-b52f-4b3f-b3ef-8779168087c0
+begin
+	foo = substance("vx")
+	foo.ρ_g
+end
+
+# ╔═╡ 794c0228-83a1-47d2-8d8e-80f3eb4d154c
+md"""
+# TODO
+
+continue here, finish implementing GasDispersion.jl
+
+need to include a horizontal jet release type, a scenario
+"""
+
+# ╔═╡ 8a4862ab-ca5c-4610-b569-de49db7d0346
+names(GasDispersion.GasDispersion)
+
+# ╔═╡ f68f4818-10aa-40ac-b604-80b16230d317
+a = SimpleAtmosphere()
+
+# ╔═╡ a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
+scn = scenario_builder(substance("sarin"), JetSource, SimpleAtmosphere(velocity=15.0); 
+       phase = :gas,
+       diameter = 0.01,  # m
+       dischargecoef = 0.85,
+       temperature = 300, # K
+       pressure = 101325,    # Pa
+       height = 1.0,
+	   velocity = 20.0
+)     # m, height of hole above the ground
+
+# ╔═╡ 4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
+function c_analytical(x::Vector{Float64}, x₀, R; chem::String="sarin") 
+
+	@assert chem == "sarin" || (chem == "VX" || chem == "vx")
+	#wind velocity
+	velocity = norm(v)
+
+	#pressure & temp
+	P_atm = 101325 # Pa
+	room_temp = 295.0 # K
+
+	chemical = substance(chem)
+
+	scn = scenario_builder(
+		chemical,
+		JetSource;
+		phase=:gas,
+		diameter=0.01, #arbitrary release diameter?
+		pressure=P_atm,
+		temperature=room_temp,
+		height=1.0
+	)
+	
+	g_plume = plume(scn, GaussianPlume)
+
+	
+	return R / (2 * π * D) * besselk(0, κ * norm(x - x₀)) * 
+	        exp(dot(v, x - x₀) / (2 * D))
+end
 
 # ╔═╡ 5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 md"ground truth"
@@ -72,7 +199,7 @@ begin
 	res = 500
 	xs = range(0.0, L, length=res) # m
 
-	cs = [c([x₁, x₂], x₀, R) for x₁ in xs, x₂ in xs] # g/m²
+	cs = [c_pde([x₁, x₂], x₀, R) for x₁ in xs, x₂ in xs] # g/m²
 end
 
 # ╔═╡ 0fa42c7c-3dc5-478e-a1d5-8926b927e254
@@ -96,6 +223,43 @@ begin
 	fig
 end
 
+# ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
+function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)
+	colormap = ColorScheme(
+	    vcat(
+	        ColorSchemes.grays[end],
+	        reverse([ColorSchemes.viridis[i] for i in 0.0:0.05:1.0])
+	    )
+	)
+
+	xs = range(0.0, L, length=res)
+	cs = [c_pde([x₁, x₂], x₀, R) for x₁ in xs, x₂ in xs]
+
+	hm = heatmap!(ax, xs, xs, cs, colormap=colormap, colorrange=(0.0, maximum(cs)))
+
+	return hm, cs
+end
+
+# ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
+function viz_c_truth(; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂"
+	)
+
+	hm, _ = viz_c_truth!(ax, res=res, L=L, x₀=x₀, R=R)
+
+	Colorbar(fig[1, 2], hm, label = "concentration c(x₁, x₂) [g/m²]")
+	
+	fig
+end
+
+# ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
+viz_c_truth()
+
 # ╔═╡ adbb9f2d-f4f9-4a20-ab52-ccc03358e058
 md"
 # simulate measurements
@@ -113,8 +277,13 @@ returns a noisy concentration reading sampled from our forward model.
 * `R::Float64` - strength of the source
 * `σ::Float64=0.005` - standard deviation of the gausian noise
 """
-function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.0005)
-	return c(x, x₀, R) + randn() * σ
+function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.05, model::String="pde")
+	@assert model == "pde" || model == "analytical" "Model must either be pde or analytical: model: $(model) is invalid."
+	if model == "pde"
+		return c_pde(x, x₀, R) + randn() * σ
+	elseif model == "analytical"
+		return c_analytical(x, x₀, R) + randn() * σ
+	end
 end
 
 # ╔═╡ 2818e9b8-8328-4759-ba7a-638ed28329d0
@@ -165,7 +334,7 @@ end
 data
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=false)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=false, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -173,6 +342,10 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	    xlabel="x₁", 
 	    ylabel="x₂"
 	)
+
+	if incl_model
+		hm, cs = viz_c_truth!(ax, res=res, L=L, x₀=x₀, R=R)
+	end
 	#=
 	sc = scatter!(
 		[row["x [m]"][1] for row in eachrow(data)],
@@ -184,13 +357,25 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	lines!(	[row["x [m]"][1] for row in eachrow(data)],
 		[row["x [m]"][2] for row in eachrow(data)],
 		color=[ColorSchemes.Gray(i) for i in range(0, stop=0.7, length=nrow(data))], linewidth=5)
-	sc = scatter!(
-		[row["x [m]"][1] for row in eachrow(data)],
-		[row["x [m]"][2] for row in eachrow(data)],
-		color=[row["c [g/m²]"][1] for row in eachrow(data)],
-		colormap=colormap,
-		strokewidth=2
-	)
+	if incl_model
+		sc = scatter!(
+			[row["x [m]"][1] for row in eachrow(data)],
+			[row["x [m]"][2] for row in eachrow(data)],
+			color=[row["c [g/m²]"][1] for row in eachrow(data)],
+			colormap=colormap,
+			colorrange=(0.0, maximum(cs)),
+			strokewidth=2
+		)
+	else
+		sc = scatter!(
+			[row["x [m]"][1] for row in eachrow(data)],
+			[row["x [m]"][2] for row in eachrow(data)],
+			color=[row["c [g/m²]"][1] for row in eachrow(data)],
+			colormap=colormap,
+			strokewidth=2
+		)
+	end
+
 	if ! isnothing(source)
 		scatter!([source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
 
@@ -210,7 +395,7 @@ viz_data(data, source=x₀)
 R_max = 100.0 # g/min
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
-@model function plume_model(data)
+@model function plume_model_pde(data)
     #=
 	prior distributions
 	=#
@@ -225,7 +410,30 @@ R_max = 100.0 # g/min
 	=#
     for i in 1:nrow(data)
         data[i, "c [g/m²]"] ~ Normal(
-			c(data[i, "x [m]"], x₀, R), σ
+			c_pde(data[i, "x [m]"], x₀, R), σ
+		)
+    end
+
+    return nothing
+end
+
+# ╔═╡ c5243e51-7cf6-47f6-a5d2-fe9c04cdf1fc
+@model function plume_model_analytical(data)
+    #=
+	prior distributions
+	=#
+	# source location
+    x₀ ~ filldist(Uniform(0.0, L), 2)
+	# source strength
+	R ~ Uniform(0.0, R_max)
+
+    #=
+	likelihood
+		(loop thru observations)
+	=#
+    for i in 1:nrow(data)
+        data[i, "c [g/m²]"] ~ Normal(
+			c_analytical(data[i, "x [m]"], x₀, R), σ
 		)
     end
 
@@ -240,7 +448,7 @@ infer the source location and strength.
 
 # ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 begin
-	prob_model = plume_model(data)
+	prob_model = plume_model_pde(data)
 			
 	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
@@ -767,10 +975,13 @@ function sim(
 	x₀::Vector{Float64}=[25.0, 4.0],
 	R::Float64=10.0,
 	use_avg::Bool=true,
-	method::String="infotaxis"
+	method::String="infotaxis",
+	model::String="pde"
 )
 
 	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
+
+	@assert model == "pde" || model == "analytical" "Model must either be pde or analytical: model: $(model) is invalid."
 	
 	sim_results = Dict()
 
@@ -791,7 +1002,14 @@ function sim(
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
 		end
-		model = plume_model(sim_data)
+		if model == "pde"
+			model = plume_model_pde(sim_data)
+		elseif model == "analytical"
+			model = plume_model_analytical(sim_data)
+		else
+			error("unknown model: $(model)")
+		end
+		
 		model_chain = DataFrame(
 			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
 		)
@@ -837,22 +1055,37 @@ simulation_data = sim(150, method="thompson")
 [ColorSchemes.Gray(i) for i in range(0, stop=1, length=4)]
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-viz_data(simulation_data, source=x₀)
+viz_data(simulation_data, source=x₀, incl_model=true)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
+# ╠═07e55858-de4c-44ae-a6b4-813e2dafda17
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
-# ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
+# ╠═c725ec90-8c76-4b1b-be17-e8d815f6e28b
+# ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
 # ╟─7bc01684-4951-4b3e-bb27-96ad99ee0f72
 # ╠═7a9125b3-6138-4d9f-a853-5057075443c1
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
+# ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╟─7bb3a2a2-bceb-411e-bc51-fe90987c716b
 # ╠═a2fb66d1-ae8a-46ca-ab56-5ba934c22360
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
+# ╟─f1e61610-4417-4617-b967-f1299b3aa726
+# ╠═97155de1-4bc7-4fde-afe4-5d20ae76d0d9
+# ╠═a1e9fc89-b52f-4b3f-b3ef-8779168087c0
+# ╠═794c0228-83a1-47d2-8d8e-80f3eb4d154c
+# ╠═8a4862ab-ca5c-4610-b569-de49db7d0346
+# ╠═f68f4818-10aa-40ac-b604-80b16230d317
+# ╠═a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
+# ╠═4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
 # ╟─5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╠═0fa42c7c-3dc5-478e-a1d5-8926b927e254
+# ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
+# ╠═0175ede7-b2ab-4ffd-8da1-278120591027
+# ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
 # ╟─adbb9f2d-f4f9-4a20-ab52-ccc03358e058
 # ╠═c5bcd369-b04c-47d7-b85e-3d51b04b7506
 # ╠═95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
@@ -864,6 +1097,7 @@ viz_data(simulation_data, source=x₀)
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
 # ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
+# ╠═c5243e51-7cf6-47f6-a5d2-fe9c04cdf1fc
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╠═96ce5328-f158-418c-96f6-1422b327b143
