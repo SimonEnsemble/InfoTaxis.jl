@@ -8,25 +8,23 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, GasDispersion
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test
 end
 
 # ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
 begin
-	#=
+#=
 	#find simple atmosphere in src
 	src_dir = dirname(pathof(GasDispersion))
 	target_file_dir = joinpath(src_dir, "base")
 	target_file = joinpath(target_file_dir, "simple_atmosphere.jl")
-	name ="C:\Users\paulm\.julia\packages\GasDispersion\WMkDx\src\base\simple_atmosphere.jl"
-	include(name)=#
+	#name ="C:\Users\paulm\.julia\packages\GasDispersion\WMkDx\src\base\simple_atmosphere.jl"
+	include(target_file)
+	=#
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
-
-# ╔═╡ c725ec90-8c76-4b1b-be17-e8d815f6e28b
-pathof(GasDispersion)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# forward model (also ground-truth)"
@@ -127,12 +125,21 @@ function substance(name::String)
 		liquid_heat_capacity=liquid_heat_cap
 	)
 
-end
-
-# ╔═╡ a1e9fc89-b52f-4b3f-b3ef-8779168087c0
+	#=
 begin
-	foo = substance("vx")
-	foo.ρ_g
+
+	scn = scenario_builder(substance("sarin"), JetSource; 
+       phase = :gas,
+       diameter = 0.01,  # m
+       dischargecoef = 0.85,
+       temperature = 300, # K
+       pressure = 101325,    # Pa
+       height = 1.0
+)     # m, height of hole above the ground
+
+end
+	=#
+
 end
 
 # ╔═╡ 794c0228-83a1-47d2-8d8e-80f3eb4d154c
@@ -144,22 +151,8 @@ continue here, finish implementing GasDispersion.jl
 need to include a horizontal jet release type, a scenario
 """
 
-# ╔═╡ 8a4862ab-ca5c-4610-b569-de49db7d0346
-names(GasDispersion.GasDispersion)
-
-# ╔═╡ f68f4818-10aa-40ac-b604-80b16230d317
-a = SimpleAtmosphere()
-
 # ╔═╡ a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
-scn = scenario_builder(substance("sarin"), JetSource, SimpleAtmosphere(velocity=15.0); 
-       phase = :gas,
-       diameter = 0.01,  # m
-       dischargecoef = 0.85,
-       temperature = 300, # K
-       pressure = 101325,    # Pa
-       height = 1.0,
-	   velocity = 20.0
-)     # m, height of hole above the ground
+
 
 # ╔═╡ 4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
 function c_analytical(x::Vector{Float64}, x₀, R; chem::String="sarin") 
@@ -286,9 +279,6 @@ function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Flo
 	end
 end
 
-# ╔═╡ 2818e9b8-8328-4759-ba7a-638ed28329d0
-measure_concentration([20.0, 10.0], x₀, R)
-
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
 
@@ -333,6 +323,14 @@ end
 # ╔═╡ 0d01df41-c0f3-4441-a9af-75d239820ba8
 data
 
+# ╔═╡ 70c0096d-5052-483e-a260-cb9ddd203e4a
+collect(reverse(range(0.1, stop=5.0, length=nrow(data))))
+
+# ╔═╡ a7ecec81-8941-491b-a12e-c6e222276834
+md"""
+## viz data
+"""
+
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=false, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)	    
 	fig = Figure()
@@ -346,17 +344,18 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	if incl_model
 		hm, cs = viz_c_truth!(ax, res=res, L=L, x₀=x₀, R=R)
 	end
-	#=
-	sc = scatter!(
-		[row["x [m]"][1] for row in eachrow(data)],
-		[row["x [m]"][2] for row in eachrow(data)],
-		color=[row["c [g/m²]"][1] for row in eachrow(data)],
-		colormap=colormap,
-		strokewidth=2
-	)=#
-	lines!(	[row["x [m]"][1] for row in eachrow(data)],
-		[row["x [m]"][2] for row in eachrow(data)],
-		color=[ColorSchemes.Gray(i) for i in range(0, stop=0.7, length=nrow(data))], linewidth=5)
+	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(data)]
+	colors = [get(ColorSchemes.magma, i) for i in range(0, stop=1.0, length=length(positions))]
+	widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
+	
+	for i in 1:length(positions)-1
+	    x1, y1 = positions[i]
+	    x2, y2 = positions[i+1]
+	    lines!(ax, [x1, x2], [y1, y2], color=colors[i], linewidth=widths[i], joinstyle = :round)
+	end
+	#=lines!(	[row["x [m]"][1] for row in eachrow(data)],
+		[row["x [m]"][2] for row in eachrow(data)], joinstyle = :round,
+		color=[ColorSchemes.magma[i] for i in range(0, stop=1.0, length=nrow(data))], linewidth=collect(reverse(range(0.1, stop=5.0, length=nrow(data)))))=#
 	if incl_model
 		sc = scatter!(
 			[row["x [m]"][1] for row in eachrow(data)],
@@ -395,7 +394,7 @@ viz_data(data, source=x₀)
 R_max = 100.0 # g/min
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
-@model function plume_model_pde(data)
+@model function plume_model(data)
     #=
 	prior distributions
 	=#
@@ -417,29 +416,6 @@ R_max = 100.0 # g/min
     return nothing
 end
 
-# ╔═╡ c5243e51-7cf6-47f6-a5d2-fe9c04cdf1fc
-@model function plume_model_analytical(data)
-    #=
-	prior distributions
-	=#
-	# source location
-    x₀ ~ filldist(Uniform(0.0, L), 2)
-	# source strength
-	R ~ Uniform(0.0, R_max)
-
-    #=
-	likelihood
-		(loop thru observations)
-	=#
-    for i in 1:nrow(data)
-        data[i, "c [g/m²]"] ~ Normal(
-			c_analytical(data[i, "x [m]"], x₀, R), σ
-		)
-    end
-
-    return nothing
-end
-
 # ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 md"# posterior
 
@@ -448,7 +424,7 @@ infer the source location and strength.
 
 # ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 begin
-	prob_model = plume_model_pde(data)
+	prob_model = plume_model(data)
 			
 	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
@@ -968,20 +944,17 @@ input should be starting location and a prior. It should check the information g
 function sim(
 	num_steps::Int64; 
 	robot_start::Vector{Float64}=[0.0, 0.0], 
-	num_mcmc_samples::Int64=100,
+	num_mcmc_samples::Int64=2000,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
 	Δx::Float64=2.0,
 	x₀::Vector{Float64}=[25.0, 4.0],
 	R::Float64=10.0,
 	use_avg::Bool=true,
-	method::String="infotaxis",
-	model::String="pde"
+	method::String="infotaxis"
 )
 
 	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
-
-	@assert model == "pde" || model == "analytical" "Model must either be pde or analytical: model: $(model) is invalid."
 	
 	sim_results = Dict()
 
@@ -1002,13 +975,9 @@ function sim(
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
 		end
-		if model == "pde"
-			model = plume_model_pde(sim_data)
-		elseif model == "analytical"
-			model = plume_model_analytical(sim_data)
-		else
-			error("unknown model: $(model)")
-		end
+
+		model = plume_model(sim_data)
+
 		
 		model_chain = DataFrame(
 			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
@@ -1051,9 +1020,6 @@ end
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
 simulation_data = sim(150, method="thompson")
 
-# ╔═╡ bd2a8854-3267-416e-a1b0-d060dc4bb094
-[ColorSchemes.Gray(i) for i in range(0, stop=1, length=4)]
-
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data, source=x₀, incl_model=true)
 
@@ -1061,7 +1027,6 @@ viz_data(simulation_data, source=x₀, incl_model=true)
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═07e55858-de4c-44ae-a6b4-813e2dafda17
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
-# ╠═c725ec90-8c76-4b1b-be17-e8d815f6e28b
 # ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
@@ -1074,10 +1039,7 @@ viz_data(simulation_data, source=x₀, incl_model=true)
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
 # ╟─f1e61610-4417-4617-b967-f1299b3aa726
 # ╠═97155de1-4bc7-4fde-afe4-5d20ae76d0d9
-# ╠═a1e9fc89-b52f-4b3f-b3ef-8779168087c0
 # ╠═794c0228-83a1-47d2-8d8e-80f3eb4d154c
-# ╠═8a4862ab-ca5c-4610-b569-de49db7d0346
-# ╠═f68f4818-10aa-40ac-b604-80b16230d317
 # ╠═a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
 # ╠═4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
 # ╟─5ecaca5b-f508-46fd-830e-e9492ca7b4ca
@@ -1089,15 +1051,15 @@ viz_data(simulation_data, source=x₀, incl_model=true)
 # ╟─adbb9f2d-f4f9-4a20-ab52-ccc03358e058
 # ╠═c5bcd369-b04c-47d7-b85e-3d51b04b7506
 # ╠═95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
-# ╠═2818e9b8-8328-4759-ba7a-638ed28329d0
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 # ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
+# ╠═70c0096d-5052-483e-a260-cb9ddd203e4a
+# ╟─a7ecec81-8941-491b-a12e-c6e222276834
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
 # ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
-# ╠═c5243e51-7cf6-47f6-a5d2-fe9c04cdf1fc
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╠═96ce5328-f158-418c-96f6-1422b327b143
@@ -1131,5 +1093,4 @@ viz_data(simulation_data, source=x₀, incl_model=true)
 # ╠═76a9cb27-7cde-44a1-b845-e07cf7a8fa44
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
-# ╠═bd2a8854-3267-416e-a1b0-d060dc4bb094
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
