@@ -8,7 +8,7 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions
 end
 
 # ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
@@ -44,43 +44,66 @@ begin
 	# diffusion coefficient
 	D = 25.0 # m²/min
 	
-	# lifespan
-	τ = 50.0 # min
+	# Detector Parameters
+	ϵ = 0.95 #efficiency
+	Δt = 1.0 #s
+	A = 0.0224 #m^2
 
-	# κ value, derived from v, D, τ.
-	κ = sqrt((dot(v, v) + 4 * D / τ) / (4 * D ^ 2)) # m⁻²
+	# source parameters
+	r₀ = [25.0, 4.0]
+	P_γ = 0.85 #about 85% decays emit detectable gamma
+	Σ = 0.2 #macroscopic cross section (mean free path)
+	mCi = 370
+	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
 end
 
-# ╔═╡ 7bc01684-4951-4b3e-bb27-96ad99ee0f72
-md"unknown params we treat as hidden"
-
-# ╔═╡ 7a9125b3-6138-4d9f-a853-5057075443c1
-begin
-	# source location
-	x₀ = [25.0, 4.0] # m
-	
-	# source strength
-	R = 10.0 # g/min
+# ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
+function count_Poisson(r::Vector{Float64}, r₀, I)
+	distance = norm(r .- r₀)
+	attenuation = Σ * distance
+	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
+	return mean(Poisson(λ))
 end
 
 # ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
-md"view c as a function of x₀ and R, the unknowns."
+md"## Poisson distr"
 
-# ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╔═╡ f5650a8a-0f97-40ce-a7d2-02b069333203
+mean(count_Poisson([10.0, 1.0], r₀, I))
+
+# ╔═╡ ede24ec8-9bd9-4642-b2de-a93e6095dc3a
+#=
+using Distributions, LinearAlgebra
+
+# --- Known parameters for detector i ---
+r_source = [x_s, y_s]         # Source location
+r_det = [x_i, y_i]            # Detector i position
+I = 1.0e6                     # Source intensity (arbitrary units)
+Δt = 10.0                     # Seconds
+ε_int = 0.3                   # 30% efficiency
+A = 0.0224                    # m² face area
+Σ_function = r -> 0.2         # Function returning macroscopic cross-section at r [1/m]
+
+# --- Compute Euclidean distance and path ---
+r_vec = r_det .- r_source
+distance = norm(r_vec)
+
+# --- Approximate line integral of Σ along r -> r_i using numerical quadrature ---
+n_samples = 100
+t_vals = range(0, stop=1, length=n_samples)
+path_points = [r_source .+ t .* r_vec for t in t_vals]
+Σ_vals = [Σ_function(r) for r in path_points]
+attenuation_integral = sum(Σ_vals) * (distance / n_samples)
+
+# --- Compute expected count (mean of Poisson) ---
+d̄ = I * Δt * ε_int * (A / (4π * distance^2)) * exp(-attenuation_integral)
 
 
-# ╔═╡ 7bb3a2a2-bceb-411e-bc51-fe90987c716b
-md"## PDE solution"
 
-# ╔═╡ a2fb66d1-ae8a-46ca-ab56-5ba934c22360
-function c_pde(x::Vector{Float64}, x₀, R) # no type assertions for Turing.jl
-	# units R / d [=] g/min / (m²/min) [] = g/m²
-	return R / (2 * π * D) * besselk(0, κ * norm(x - x₀)) * 
-	        exp(dot(v, x - x₀) / (2 * D))
-end
+=#
 
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
-c_pde(x₀, x₀, R) # warning: diverges at center.
+mean(count_Poisson(r₀, r₀, A)) # warning: diverges at center.
 
 # ╔═╡ f1e61610-4417-4617-b967-f1299b3aa726
 md"## GasDispersion analytical solution"
@@ -190,9 +213,9 @@ md"ground truth"
 # ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 begin
 	res = 500
-	xs = range(0.0, L, length=res) # m
-
-	cs = [c_pde([x₁, x₂], x₀, R) for x₁ in xs, x₂ in xs] # g/m²
+	rs = range(0.0, L, length=res) # m
+mean(count_Poisson([10.0, 1.0], r₀, A))
+	counts = [count_Poisson([r₁, r₂], r₀, I) for r₁ in rs, r₂ in rs] # counts
 end
 
 # ╔═╡ 0fa42c7c-3dc5-478e-a1d5-8926b927e254
@@ -208,11 +231,11 @@ begin
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂"
+	    xlabel="r₁", 
+	    ylabel="r₂"
 	)
-	hm  = heatmap!(xs, xs, cs, colormap=colormap, colorrange=(0.0, maximum(cs)))
-	Colorbar(fig[1, 2], hm, label = "concentration c(x₁, x₂) [g/m²]")
+	hm  = heatmap!(rs, rs, counts, colormap=colormap, colorrange=(0.0, 50000))
+	Colorbar(fig[1, 2], hm, label = "counts [counts/s]")
 	fig
 end
 
@@ -234,7 +257,7 @@ function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[
 end
 
 # ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
-function viz_c_truth(; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)
+function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], A::Float64=10.0)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -1018,10 +1041,10 @@ function sim(
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data = sim(150, method="thompson")
+#simulation_data = sim(150, method="thompson")
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-viz_data(simulation_data, source=x₀, incl_model=true)
+#viz_data(simulation_data, source=x₀, incl_model=true)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1030,12 +1053,10 @@ viz_data(simulation_data, source=x₀, incl_model=true)
 # ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
-# ╟─7bc01684-4951-4b3e-bb27-96ad99ee0f72
-# ╠═7a9125b3-6138-4d9f-a853-5057075443c1
-# ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
-# ╟─7bb3a2a2-bceb-411e-bc51-fe90987c716b
-# ╠═a2fb66d1-ae8a-46ca-ab56-5ba934c22360
+# ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
+# ╠═f5650a8a-0f97-40ce-a7d2-02b069333203
+# ╠═ede24ec8-9bd9-4642-b2de-a93e6095dc3a
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
 # ╟─f1e61610-4417-4617-b967-f1299b3aa726
 # ╠═97155de1-4bc7-4fde-afe4-5d20ae76d0d9
