@@ -65,6 +65,9 @@ function count_Poisson(r::Vector{Float64}, r₀, I)
 	return mean(Poisson(λ))
 end
 
+# ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
+
+
 # ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 md"## Poisson distr"
 
@@ -108,63 +111,6 @@ mean(count_Poisson(r₀, r₀, A)) # warning: diverges at center.
 # ╔═╡ f1e61610-4417-4617-b967-f1299b3aa726
 md"## GasDispersion analytical solution"
 
-# ╔═╡ 97155de1-4bc7-4fde-afe4-5d20ae76d0d9
-function substance(name::String)
-
-	R = 8.314 #J/(mol·K)
-	P = 101325  # Pa (standard atmospheric pressure)
-	T = 273.15  # K (standard temperature)
-	
-	if name == "VX" || name == "vx"
-		mw = 0.267368 #kg/mol
-		ρ = 1008.3 #kg/m³
-		k=1.07 #estimate of Cₚ/Cᵥ for heavy organic gas
-		vapor_pr = 0.083993 #Pa
-		bp = 571.0
-		latent_h = 291358.73 #J/kg
-		gas_heat_cap = 1561.157 #J/kg/K
-		liquid_heat_cap = 1883.209 #J/kg/K
-	elseif name == "sarin"
-		mw = 0.140093 #kg/mol
-		ρ = 1094.3 #kg/m³
-		k=1.1 #estimate of Cₚ/Cᵥ for heavy organic gas
-		vapor_pr = 570.619 #Pa
-		bp = 420.0
-		latent_h = 262682.27 #J/kg
-		gas_heat_cap = 1271.318 #J/kg/K
-		liquid_heat_cap = 1584.517 #J/kg/K
-	end
-
-	return Substance(
-		name=name,
-		#molar_weight=mw,
-		liquid_density=ρ,
-		gas_density = (P * mw) / (R * T),
-		#vapor_pressure=vapor_pr,
-		#k=k,
-		boiling_temp=bp,
-		latent_heat=latent_h,
-		gas_heat_capacity=gas_heat_cap,
-		liquid_heat_capacity=liquid_heat_cap
-	)
-
-	#=
-begin
-
-	scn = scenario_builder(substance("sarin"), JetSource; 
-       phase = :gas,
-       diameter = 0.01,  # m
-       dischargecoef = 0.85,
-       temperature = 300, # K
-       pressure = 101325,    # Pa
-       height = 1.0
-)     # m, height of hole above the ground
-
-end
-	=#
-
-end
-
 # ╔═╡ 794c0228-83a1-47d2-8d8e-80f3eb4d154c
 md"""
 # TODO
@@ -176,36 +122,6 @@ need to include a horizontal jet release type, a scenario
 
 # ╔═╡ a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
 
-
-# ╔═╡ 4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
-function c_analytical(x::Vector{Float64}, x₀, R; chem::String="sarin") 
-
-	@assert chem == "sarin" || (chem == "VX" || chem == "vx")
-	#wind velocity
-	velocity = norm(v)
-
-	#pressure & temp
-	P_atm = 101325 # Pa
-	room_temp = 295.0 # K
-
-	chemical = substance(chem)
-
-	scn = scenario_builder(
-		chemical,
-		JetSource;
-		phase=:gas,
-		diameter=0.01, #arbitrary release diameter?
-		pressure=P_atm,
-		temperature=room_temp,
-		height=1.0
-	)
-	
-	g_plume = plume(scn, GaussianPlume)
-
-	
-	return R / (2 * π * D) * besselk(0, κ * norm(x - x₀)) * 
-	        exp(dot(v, x - x₀) / (2 * D))
-end
 
 # ╔═╡ 5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 md"ground truth"
@@ -240,7 +156,7 @@ begin
 end
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)
+function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing)
 	colormap = ColorScheme(
 	    vcat(
 	        ColorSchemes.grays[end],
@@ -248,33 +164,37 @@ function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[
 	    )
 	)
 
-	xs = range(0.0, L, length=res)
-	cs = [c_pde([x₁, x₂], x₀, R) for x₁ in xs, x₂ in xs]
+	rs = range(0.0, L, length=res)
+	counts = [count_Poisson([r₁, r₂], r₀, I) for r₁ in rs, r₂ in rs] # counts
 
-	hm = heatmap!(ax, xs, xs, cs, colormap=colormap, colorrange=(0.0, maximum(cs)))
+	hm = heatmap!(ax, rs, rs, counts, colormap=colormap, colorrange=(0.0, 5.0*10^4))
 
-	return hm, cs
+	if ! isnothing(source)
+		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+	end
+
+	return hm, counts
 end
 
 # ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
-function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], A::Float64=10.0)
+function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂"
+	    xlabel="r₁", 
+	    ylabel="r₂"
 	)
 
-	hm, _ = viz_c_truth!(ax, res=res, L=L, x₀=x₀, R=R)
+	hm, _ = viz_c_truth!(ax, res=res, L=L, r₀=r₀, I=I, source=source)
 
-	Colorbar(fig[1, 2], hm, label = "concentration c(x₁, x₂) [g/m²]")
+	Colorbar(fig[1, 2], hm, label = "counts [counts/s]")
 	
 	fig
 end
 
 # ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
-viz_c_truth()
+viz_c_truth(source=r₀)
 
 # ╔═╡ adbb9f2d-f4f9-4a20-ab52-ccc03358e058
 md"
@@ -1054,15 +974,14 @@ end
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═f5650a8a-0f97-40ce-a7d2-02b069333203
 # ╠═ede24ec8-9bd9-4642-b2de-a93e6095dc3a
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
 # ╟─f1e61610-4417-4617-b967-f1299b3aa726
-# ╠═97155de1-4bc7-4fde-afe4-5d20ae76d0d9
 # ╠═794c0228-83a1-47d2-8d8e-80f3eb4d154c
 # ╠═a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
-# ╠═4c18f2e7-c987-44c2-ad9d-0c87b4b0562f
 # ╟─5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╠═0fa42c7c-3dc5-478e-a1d5-8926b927e254
