@@ -8,7 +8,7 @@ using InteractiveUtils
 begin
 	import Pkg;Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf
 end
 
 # ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
@@ -53,26 +53,50 @@ begin
 	r₀ = [25.0, 4.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
-	mCi = 370
+	mCi = 37
 	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
-end
 
-# ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
-function count_Poisson(r::Vector{Float64}, r₀, I)
-	distance = norm(r .- r₀)
-	attenuation = Σ * distance
-	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
-	return mean(Poisson(λ))
+	# colors
+	colormap = ColorScheme(
+	        reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1.0])
+	)
 end
 
 # ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
-
+I
 
 # ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 md"## Poisson distr"
 
+# ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
+"""
+Generates a Poisson distribution and if `measure::Bool=false` returns the mean value of the poisson distribution at r. If `measure::Bool=true`, returns a sample measurement.
+
+* `r::Vector{Float64}` - Measurement/true value location.
+* `r₀::Vector{Float64}` - source location.
+* `I::Float64` - source strength in Bq.
+"""
+function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_distr::Bool=false)
+	distance = norm(r .- r₀)
+	attenuation = Σ * distance
+	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
+	
+	if ret_distr
+		return Poisson(λ)
+	end
+	
+	if measure
+		return rand(Poisson(λ))
+	else
+		return mean(Poisson(λ))
+	end
+end
+
 # ╔═╡ f5650a8a-0f97-40ce-a7d2-02b069333203
-mean(count_Poisson([10.0, 1.0], r₀, I))
+count_Poisson([10.0, 1.0], r₀, I)
+
+# ╔═╡ d9b50776-fcfc-4dd4-95c7-bf806323e744
+count_Poisson([10.0, 1.0], r₀, I, measure=true)
 
 # ╔═╡ ede24ec8-9bd9-4642-b2de-a93e6095dc3a
 #=
@@ -106,7 +130,7 @@ d̄ = I * Δt * ε_int * (A / (4π * distance^2)) * exp(-attenuation_integral)
 =#
 
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
-mean(count_Poisson(r₀, r₀, A)) # warning: diverges at center.
+mean(count_Poisson(r₀, r₀, I)) # warning: diverges at center.
 
 # ╔═╡ f1e61610-4417-4617-b967-f1299b3aa726
 md"## GasDispersion analytical solution"
@@ -136,7 +160,7 @@ end
 
 # ╔═╡ 0fa42c7c-3dc5-478e-a1d5-8926b927e254
 begin
-	colormap = ColorScheme(
+	color_map = ColorScheme(
 	    vcat(
 	        ColorSchemes.grays[end],
 	        reverse([ColorSchemes.viridis[i] for i in 0.0:0.05:1.0])
@@ -150,24 +174,25 @@ begin
 	    xlabel="r₁", 
 	    ylabel="r₂"
 	)
-	hm  = heatmap!(rs, rs, counts, colormap=colormap, colorrange=(0.0, 50000))
+	hm  = heatmap!(rs, rs, counts, colormap=color_map, colorrange=(0.0, 50000))
 	Colorbar(fig[1, 2], hm, label = "counts [counts/s]")
 	fig
 end
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing)
-	colormap = ColorScheme(
+function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=5.0*10^7)
+	#=colormap = ColorScheme(
 	    vcat(
 	        ColorSchemes.grays[end],
 	        reverse([ColorSchemes.viridis[i] for i in 0.0:0.05:1.0])
 	    )
-	)
+	)=#
+	colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
 
 	rs = range(0.0, L, length=res)
 	counts = [count_Poisson([r₁, r₂], r₀, I) for r₁ in rs, r₂ in rs] # counts
 
-	hm = heatmap!(ax, rs, rs, counts, colormap=colormap, colorrange=(0.0, 5.0*10^4))
+	hm = heatmap!(ax, rs, rs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
 
 	if ! isnothing(source)
 		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
@@ -177,7 +202,7 @@ function viz_c_truth!(ax; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[
 end
 
 # ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
-function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing)
+function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=5.0*10^7)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -186,41 +211,31 @@ function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.
 	    ylabel="r₂"
 	)
 
-	hm, _ = viz_c_truth!(ax, res=res, L=L, r₀=r₀, I=I, source=source)
+	#scales:
+	scale_option_1 = ReversibleScale(
+	    x -> asinh(x / 1000),         # You can tune the denominator
+	    x -> 1000 * sinh(x)
+	)
 
-	Colorbar(fig[1, 2], hm, label = "counts [counts/s]")
+	scale_option_2 = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	hm, _ = viz_c_truth!(ax, scale_option_2, res=res, L=L, r₀=r₀, I=I, source=source, scale_max=scale_max)
+
+	colorbar_tick_values = [0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 5e7]
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+	
+	tick_pos = scale_option_2.(colorbar_tick_values)
+
+	Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
 	
 	fig
 end
 
 # ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
 viz_c_truth(source=r₀)
-
-# ╔═╡ adbb9f2d-f4f9-4a20-ab52-ccc03358e058
-md"
-# simulate measurements
-measurement noise"
-
-# ╔═╡ c5bcd369-b04c-47d7-b85e-3d51b04b7506
-σ = 0.05 # g/m², the measurement noise
-
-# ╔═╡ 95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
-"""
-returns a noisy concentration reading sampled from our forward model.
-
-* `x::Vector{Float64}` - location where the reading is taking place
-* `x₀::Vector{Float64}` - location of the source
-* `R::Float64` - strength of the source
-* `σ::Float64=0.005` - standard deviation of the gausian noise
-"""
-function measure_concentration(x::Vector{Float64}, x₀::Vector{Float64}, R::Float64; σ::Float64=0.05, model::String="pde")
-	@assert model == "pde" || model == "analytical" "Model must either be pde or analytical: model: $(model) is invalid."
-	if model == "pde"
-		return c_pde(x, x₀, R) + randn() * σ
-	elseif model == "analytical"
-		return c_analytical(x, x₀, R) + randn() * σ
-	end
-end
 
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
@@ -258,16 +273,13 @@ begin
 	
 	data = DataFrame(
 		"time" => 1:length(robot_path),
-		"x [m]" => robot_path,
-		"c [g/m²]" => [measure_concentration(x, x₀, R) for x in robot_path]
+		"r [m]" => robot_path,
+		"counts" => [count_Poisson(r, r₀, I, measure=true) for r in robot_path]
 	)
 end
 
 # ╔═╡ 0d01df41-c0f3-4441-a9af-75d239820ba8
 data
-
-# ╔═╡ 70c0096d-5052-483e-a260-cb9ddd203e4a
-collect(reverse(range(0.1, stop=5.0, length=nrow(data))))
 
 # ╔═╡ a7ecec81-8941-491b-a12e-c6e222276834
 md"""
@@ -275,20 +287,33 @@ md"""
 """
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=false, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=5.0*10^7)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂"
+	    xlabel="r₁", 
+	    ylabel="r₂"
 	)
 
 	if incl_model
-		hm, cs = viz_c_truth!(ax, res=res, L=L, x₀=x₀, R=R)
+		scale = ReversibleScale(
+		    x -> log10(x + 1),   # forward: avoids log(0)
+		    x -> 10^x - 1        # inverse
+		)
+		
+		hm, counts = viz_c_truth!(ax, scale, res=res, L=L, r₀=r₀, I=I, scale_max=scale_max)
+
+		colorbar_tick_values = [0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 5e7]
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
 	end
-	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(data)]
-	colors = [get(ColorSchemes.magma, i) for i in range(0, stop=1.0, length=length(positions))]
+	
+	positions = [(row["r [m]"][1], row["r [m]"][2]) for row in eachrow(data)]
+	color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
+	colors = [get(reverse(ColorSchemes.hot), i) for i in range(0, stop=1.0, length=length(positions))]
 	widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
 	
 	for i in 1:length(positions)-1
@@ -301,18 +326,19 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 		color=[ColorSchemes.magma[i] for i in range(0, stop=1.0, length=nrow(data))], linewidth=collect(reverse(range(0.1, stop=5.0, length=nrow(data)))))=#
 	if incl_model
 		sc = scatter!(
-			[row["x [m]"][1] for row in eachrow(data)],
-			[row["x [m]"][2] for row in eachrow(data)],
-			color=[row["c [g/m²]"][1] for row in eachrow(data)],
+			[row["r [m]"][1] for row in eachrow(data)],
+			[row["r [m]"][2] for row in eachrow(data)],
+			color=[row["counts"][1] for row in eachrow(data)],
 			colormap=colormap,
-			colorrange=(0.0, maximum(cs)),
+			colorscale = scale,
+			colorrange=(0.0, scale_max),
 			strokewidth=2
 		)
 	else
 		sc = scatter!(
-			[row["x [m]"][1] for row in eachrow(data)],
-			[row["x [m]"][2] for row in eachrow(data)],
-			color=[row["c [g/m²]"][1] for row in eachrow(data)],
+			[row["r [m]"][1] for row in eachrow(data)],
+			[row["r [m]"][2] for row in eachrow(data)],
+			color=[row["counts"][1] for row in eachrow(data)],
 			colormap=colormap,
 			strokewidth=2
 		)
@@ -326,34 +352,35 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	
 	xlims!(0-Δx, L+Δx)
 	ylims!(0-Δx, L+Δx)
-	Colorbar(fig[1, 2], sc, label="concentration c(x₁, x₂) [g/m²]")
+	
+	if ! incl_model
+		Colorbar(fig[1, 2], sc, label="counts")
+	end
 	fig
 end
 
 # ╔═╡ d38aeeca-4e5a-40e1-9171-0a187e84eb69
-viz_data(data, source=x₀)
+viz_data(data, source=r₀)
 
 # ╔═╡ 26a4354f-826e-43bb-9f52-eea54cc7e30f
-R_max = 100.0 # g/min
+I_max = 1e11 #emmissions/s
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
-@model function plume_model(data)
+@model function rad_model(data)
     #=
 	prior distributions
 	=#
 	# source location
-    x₀ ~ filldist(Uniform(0.0, L), 2)
+    r₀ ~ filldist(Uniform(0.0, L), 2)
 	# source strength
-	R ~ Uniform(0.0, R_max)
+	I ~ Uniform(0.0, I_max)
 
     #=
 	likelihood
 		(loop thru observations)
 	=#
     for i in 1:nrow(data)
-        data[i, "c [g/m²]"] ~ Normal(
-			c_pde(data[i, "x [m]"], x₀, R), σ
-		)
+        data[i, "counts"] ~ count_Poisson(data[i, "r [m]"], r₀, I, ret_distr=true)
     end
 
     return nothing
@@ -367,7 +394,7 @@ infer the source location and strength.
 
 # ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 begin
-	prob_model = plume_model(data)
+	prob_model = rad_model(data)
 			
 	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
@@ -377,7 +404,7 @@ begin
 end
 
 # ╔═╡ 96ce5328-f158-418c-96f6-1422b327b143
-mean(chain[:, "x₀[1]"])
+mean(chain[:, "r₀[1]"])
 
 # ╔═╡ 388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
 begin
@@ -391,9 +418,9 @@ begin
 	local fig = Figure()
 	local ax = Axis(fig[1, 1])
 scatter!(ax,
-	chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
+	chain[:, "r₀[1]"], chain[:, "r₀[2]"], marker=:+
 )
-	scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
+	scatter!(ax, r₀[1], r₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
 	axislegend(ax, location=:tr)
 	
 	fig
@@ -973,10 +1000,11 @@ end
 # ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
-# ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
+# ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╠═f5650a8a-0f97-40ce-a7d2-02b069333203
+# ╠═d9b50776-fcfc-4dd4-95c7-bf806323e744
 # ╠═ede24ec8-9bd9-4642-b2de-a93e6095dc3a
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
 # ╟─f1e61610-4417-4617-b967-f1299b3aa726
@@ -988,13 +1016,9 @@ end
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
 # ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
-# ╟─adbb9f2d-f4f9-4a20-ab52-ccc03358e058
-# ╠═c5bcd369-b04c-47d7-b85e-3d51b04b7506
-# ╠═95e834f4-4530-4a76-b8a8-f39bb7c0fdb1
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 # ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
-# ╠═70c0096d-5052-483e-a260-cb9ddd203e4a
 # ╟─a7ecec81-8941-491b-a12e-c6e222276834
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
