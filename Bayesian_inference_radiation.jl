@@ -6,10 +6,13 @@ using InteractiveUtils
 
 # ╔═╡ 285d575a-ad5d-401b-a8b1-c5325e1d27e9
 begin
-	import Pkg;Pkg.activate()
+	import Pkg; Pkg.activate()
 	
 	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf
 end
+
+# ╔═╡ 891d47b7-d69b-4cec-bc98-ae2b30a69f69
+
 
 # ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
 begin
@@ -53,7 +56,7 @@ begin
 	r₀ = [25.0, 4.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
-	mCi = 37
+	mCi = 0.5
 	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
 
 	# colors
@@ -86,11 +89,15 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 	end
 	
 	if measure
-		return rand(Poisson(λ))
+		λ_background = 1.5
+		return rand(Poisson(λ)) + rand(Poisson(λ_background)) 
 	else
 		return mean(Poisson(λ))
 	end
 end
+
+# ╔═╡ db10922f-4b36-4865-992c-7ae4a017a569
+rand(Poisson(1.5)) 
 
 # ╔═╡ f5650a8a-0f97-40ce-a7d2-02b069333203
 count_Poisson([10.0, 1.0], r₀, I)
@@ -235,25 +242,25 @@ function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.
 end
 
 # ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
-viz_c_truth(source=r₀)
+viz_c_truth(source=r₀, I=I)
 
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
 
 # ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 begin
-	Δx = 2.0 # m (step length for robot)
+	Δr = 2.0 # m (step length for robot)
 	robot_path = [[0.0, 0.0]] # begin at origin
 
 	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol)
 		if direction == :left
-			Δ = [-Δx, 0.0]
+			Δ = [-Δr, 0.0]
 		elseif direction == :right
-			Δ = [Δx, 0.0]
+			Δ = [Δr, 0.0]
 		elseif direction == :up
-			Δ = [0.0, Δx]
+			Δ = [0.0, Δr]
 		elseif direction == :down
-			Δ = [0.0, -Δx]
+			Δ = [0.0, -Δr]
 		else
 			error("direction not valid")
 		end
@@ -287,7 +294,7 @@ md"""
 """
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=5.0*10^7)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=5.0*10^7)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -317,9 +324,9 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
 	
 	for i in 1:length(positions)-1
-	    x1, y1 = positions[i]
-	    x2, y2 = positions[i+1]
-	    lines!(ax, [x1, x2], [y1, y2], color=colors[i], linewidth=widths[i], joinstyle = :round)
+	    r1, y1 = positions[i]
+	    r2, y2 = positions[i+1]
+	    lines!(ax, [r1, r2], [y1, y2], color=colors[i], linewidth=widths[i], joinstyle = :round)
 	end
 	#=lines!(	[row["x [m]"][1] for row in eachrow(data)],
 		[row["x [m]"][2] for row in eachrow(data)], joinstyle = :round,
@@ -350,8 +357,8 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 		#axislegend(location=:tr)
 	end
 	
-	xlims!(0-Δx, L+Δx)
-	ylims!(0-Δx, L+Δx)
+	xlims!(0-Δr, L+Δr)
+	ylims!(0-Δr, L+Δr)
 	
 	if ! incl_model
 		Colorbar(fig[1, 2], sc, label="counts")
@@ -430,14 +437,14 @@ end
 md"### create empirical dist'n for source location"
 
 # ╔═╡ a8c1cf59-2afa-4e50-9933-58b716b57808
-x_edges = collect(0.0:Δx:L+2) .- Δx/2
+r_edges = collect(0.0:Δr:L+2) .- Δr/2
 
 # ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
-function chain_to_P(chain::DataFrame, x_edges::Vector{Float64}=x_edges)
-	hist_x₀ = fit(
-		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
+function chain_to_P(chain::DataFrame, r_edges::Vector{Float64}=r_edges)
+	hist_r₀ = fit(
+		Histogram, (chain[:, "r₀[1]"], chain[:, "r₀[2]"]), (r_edges, r_edges)
 	)
-	return hist_x₀.weights / sum(hist_x₀.weights)
+	return hist_r₀.weights / sum(hist_r₀.weights)
 end
 
 # ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
@@ -447,23 +454,23 @@ P = chain_to_P(chain)
 sum(P)
 
 # ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
-function x_to_bin(x_edges::Vector{Float64}, x::Float64)
-	for b = 1:length(x_edges)-1
-		if x < x_edges[b+1]
+function r_to_bin(r_edges::Vector{Float64}, r::Float64)
+	for b = 1:length(r_edges)-1
+		if r < r_edges[b+1]
 			return b
 		end
 	end
 end
 
 # ╔═╡ cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
-function bin_to_x(x_edges::Vector{Float64}, i::Int)
+function bin_to_r(r_edges::Vector{Float64}, i::Int)
 end
 
 # ╔═╡ 544fcbc4-c222-4876-82fe-d5c92cb18671
-@test x_to_bin(x_edges, 0.5) == 1
+@test r_to_bin(r_edges, 0.5) == 1
 
 # ╔═╡ 8cfe65af-b0f8-4c6c-8cbe-86e80e8c4e58
-@test x_to_bin(x_edges, 1.4) == 2
+@test r_to_bin(r_edges, 1.4) == 2
 
 # ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
 # from edges compute centers of bins.
@@ -473,10 +480,10 @@ function edges_to_centers(edges)
 end
 
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
-x_bin_centers = edges_to_centers(x_edges)
+r_bin_centers = edges_to_centers(r_edges)
 
 # ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
+heatmap(r_bin_centers, r_bin_centers, P)
 
 # ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
 function viz_posterior(chain::DataFrame)
@@ -484,22 +491,22 @@ function viz_posterior(chain::DataFrame)
 
 	# dist'n of R
 	ax_t = Axis(fig[1, 1], xlabel="R [g/L]", ylabel="density")
-	hist!(chain[:, "R"])
+	hist!(chain[:, "I"])
 
-	# dist'n of x₀
+	# dist'n of r₀
 	ax_b = Axis(
-		fig[2, 1], xlabel="x₁ [m]", ylabel="x₂ [m]", aspect=DataAspect()
+		fig[2, 1], xlabel="r₁ [m]", ylabel="r₂ [m]", aspect=DataAspect()
 	)
 	xlims!(ax_b, 0, L)
 	ylims!(ax_b, 0, L)
 	hb = hexbin!(
-		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
+		ax_b, chain[:, "r₀[1]"], chain[:, "r₀[2]"], colormap=colormap, bins=round(Int, L/Δr)
 	)
 	Colorbar(fig[2, 2], hb, label="count")
 
 	# show ground-truth
-	vlines!(ax_t, R, color="red", linestyle=:dash)
-	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
+	vlines!(ax_t, I, color="red", linestyle=:dash)
+	scatter!(ax_b, [r₀[1]], [r₀[2]], marker=:+, color="red")
 	fig
 end
 
@@ -525,21 +532,21 @@ entropy(P::Matrix{Float64}) = sum(
 md"## simulate"
 
 # ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
-function pos_to_index(pos::Vector{Float64}; Δx::Float64=2.0)
-    x₁ = Int(floor((pos[1] + 1) / Δx)) + 1
-    x₂ = Int(floor((pos[2] + 1) / Δx)) + 1
-    return (x₁, x₂)
+function pos_to_index(pos::Vector{Float64}; Δr::Float64=2.0)
+    r₁ = Int(floor((pos[1] + 1) / Δr)) + 1
+    r₂ = Int(floor((pos[2] + 1) / Δr)) + 1
+    return (r₁, r₂)
 end
 
 # ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
 """
 Sets probability of finding the source at the robot's current coordinates to 0 and renormalizes the probability field.
 
-* `x::Vector{Float64}` - robot's coordinates
+* `r::Vector{Float64}` - robot's coordinates
 * `pr_field::Matrix{Float64}` - probability field to be updated
 """
-function miss_source(x::Vector{Float64}, pr_field::Matrix{Float64})
-	indicies = pos_to_index(x)
+function miss_source(r::Vector{Float64}, pr_field::Matrix{Float64})
+	indicies = pos_to_index(r)
 	pr_field[(indicies...)] = 0.0
 	pr_field .= pr_field/sum(pr_field)
 	return pr_field
@@ -547,7 +554,7 @@ end
 
 # ╔═╡ 5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 """
-H(s|a), the expected entropy of X₀ *after* taking action a in belief state s.
+H(s|a), the expected entropy of r₀ *after* taking action a in belief state s.
 
 a ∈ {left, right, up, down}
 
@@ -588,22 +595,22 @@ function expected_entropy(
 	test_map = miss_source(test_robot[end], pr_field)
 	exp_entropy = 0.0
 
-	x_test = test_robot[end]
+	r_test = test_robot[end]
 
 	if use_avg
-		mean(chain[:, "x₀[1]"])
-		x₀_test = [mean(chain[:, "x₀[1]"]), mean(chain[:, "x₀[2]"])]
+		mean(chain[:, "r₀[1]"])
+		r₀_test = [mean(chain[:, "r₀[1]"]), mean(chain[:, "r₀[2]"])]
 		R_test = mean(chain[:, "R"])
-		c_test = c(x_test, x₀_test, R_test)
+		c_test = c(r_test, r₀_test, R_test)
 
 		test_data_row = DataFrame(
 			"time" => [length(data[:, 1])+1],
-			"x [m]" => [x_test],
-			"c [g/m²]" => [c_test]
+			"r [m]" => [r_test],
+			"counts" => [c_test]
 		)
 
 		test_data = vcat(data, test_data_row)
-		test_prob_model = plume_model(test_data)
+		test_prob_model = rad_model(test_data)
 		test_chain = DataFrame(
 			sample(test_prob_model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
 		)
@@ -613,18 +620,18 @@ function expected_entropy(
 
 	else
 		for row in eachrow(chain)
-			x₀_test = [row["x₀[1]"], row["x₀[2]"]]
+			r₀_test = [row["r₀[1]"], row["r₀[2]"]]
 			R_test = row["R"]
-			c_test = c(x_test, x₀_test, R_test)
+			c_test = c(r_test, r₀_test, R_test)
 	
 			test_data_row = DataFrame(
 				"time" => [length(data[:, 1])+1],
-				"x [m]" => [x_test],
-				"c [g/m²]" => [c_test]
+				"r [m]" => [r_test],
+				"counts" => [c_test]
 			)
 	
 			test_data = vcat(data, test_data_row)
-			test_prob_model = plume_model(test_data)
+			test_prob_model = rad_model(test_data)
 			test_chain = DataFrame(
 				sample(test_prob_model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
 			)
@@ -650,22 +657,22 @@ Given the robot path, returns a tuple of optional directions the robot could tra
 
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
 * `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
+* `Δr::Float64=2.0` - step size of the robot.
 
 """
 function get_next_steps(
 	robot_path::Vector{Vector{Float64}}, 
 	L::Float64; 
-	Δx::Float64=2.0,
+	Δr::Float64=2.0,
 	allow_overlap::Bool=false
 )
 	current_pos = robot_path[end]
 
 	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
+        :up    => [0.0, Δr],
+        :down  => [0.0, -Δr],
+        :left  => [-Δr, 0.0],
+        :right => [Δr, 0.0]
     )
 
 	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
@@ -709,7 +716,7 @@ Given the robot path, finds the best next direction the robot to travel using th
 * `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
 * `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 * `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
+* `Δr::Float64=2.0` - step size of the robot.
 * `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
 * `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 """
@@ -721,7 +728,7 @@ function infotaxis(
 	num_mcmc_samples::Int64=100,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
-	Δx::Float64=2.0,
+	Δr::Float64=2.0,
 	use_avg::Bool=true,
 	allow_overlap::Bool=false)
 
@@ -765,7 +772,7 @@ function infotaxis(
 			num_mcmc_samples=num_mcmc_samples,
 			num_mcmc_chains=num_mcmc_chains,
 			L=L,
-			Δx=Δx,
+			Δr=Δr,
 			use_avg=use_avg,
 			allow_overlap=true)
 	end
@@ -792,7 +799,7 @@ Given the robot path, finds the best next direction the robot to travel using th
 * `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
 * `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 * `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
+* `Δr::Float64=2.0` - step size of the robot.
 * `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
 * `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 """
@@ -800,16 +807,16 @@ function thompson_sampling(
 	robot_path::Vector{Vector{Float64}}, 
 	chain::DataFrame;
 	L::Float64=50.0,
-	Δx::Float64=2.0,
+	Δr::Float64=2.0,
 	allow_overlap::Bool=false)
 
 	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
 
 	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
+        :up    => [0.0, Δr],
+        :down  => [0.0, -Δr],
+        :left  => [-Δr, 0.0],
+        :right => [Δr, 0.0]
     )
 
 	if length(direction_options) < 1 && allow_overlap == true
@@ -826,7 +833,7 @@ function thompson_sampling(
 
 	for direction in direction_options
 		new_loc = loc .+ directions[direction]
-		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
+		dist = norm([rand_θ["r₀[1]"]-new_loc[1], rand_θ["r₀[2]"]-new_loc[2]])
 		if dist < greedy_dist
 			greedy_dist = dist
 			best_direction = direction
@@ -839,7 +846,7 @@ function thompson_sampling(
 			robot_path, 
 			chain,
 			L=L,
-			Δx=Δx,
+			Δr=Δr,
 			allow_overlap=true)
 	end
 	
@@ -871,7 +878,7 @@ function find_opt_choice(
 	num_mcmc_samples::Int64=100,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
-	Δx::Float64=2.0,
+	Δr::Float64=2.0,
 	use_avg::Bool=true,
 	allow_overlap::Bool=false,
 	method::String="infotaxis")
@@ -887,7 +894,7 @@ function find_opt_choice(
 			num_mcmc_samples=num_mcmc_samples,
 			num_mcmc_chains=num_mcmc_chains,
 			L=L,
-			Δx=Δx,
+			Δr=Δr,
 			use_avg=use_avg
 		)
 
@@ -896,7 +903,7 @@ function find_opt_choice(
 			robot_path, 
 			chain,
 			L=L,
-			Δx=Δx
+			Δr=Δr
 		)
 
 	else
@@ -917,8 +924,8 @@ function sim(
 	num_mcmc_samples::Int64=2000,
 	num_mcmc_chains::Int64=1,
 	L::Float64=50.0,
-	Δx::Float64=2.0,
-	x₀::Vector{Float64}=[25.0, 4.0],
+	Δr::Float64=2.0,
+	r₀::Vector{Float64}=[25.0, 4.0],
 	R::Float64=10.0,
 	use_avg::Bool=true,
 	method::String="infotaxis"
@@ -930,23 +937,23 @@ function sim(
 
 	#times = 1:num_steps
 	#xs = robot_start
-	c_start = measure_concentration(robot_start, x₀, R)
+	c_start = count_Poisson(robot_start, r₀, I, measure=true)
 
 	sim_data = DataFrame(
 		"time" => [1.0],
-		"x [m]" => [robot_start],
-		"c [g/m²]" => [c_start]
+		"r [m]" => [robot_start],
+		"counts" => [c_start]
 	)
 
 	robot_path = [robot_start]
 
 	for iter = 1:num_steps
-		if norm([robot_path[end][i] - x₀[i] for i=1:2]) < Δx
+		if norm([robot_path[end][i] - r₀[i] for i=1:2]) < Δr
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
 		end
 
-		model = plume_model(sim_data)
+		model = rad_model(sim_data)
 
 		
 		model_chain = DataFrame(
@@ -962,7 +969,7 @@ function sim(
 			num_mcmc_samples=num_mcmc_samples,
 			num_mcmc_chains=num_mcmc_chains,
 			L=L,
-			Δx=Δx,
+			Δr=Δr,
 			use_avg=use_avg,
 			method=method
 		)
@@ -974,12 +981,12 @@ function sim(
 			
 
 		move!(robot_path, best_direction)
-		c_measurement = measure_concentration(robot_path[end], x₀, R)
+		c_measurement = count_Poisson(robot_path[end], r₀, I, measure=true)
 		push!(
 			sim_data,
 			Dict("time" => iter+1.0, 
-			"x [m]" => robot_path[end], 
-			"c [g/m²]" => c_measurement
+			"r [m]" => robot_path[end], 
+			"counts" => c_measurement
 			)
 		)
 	end
@@ -988,13 +995,14 @@ function sim(
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-#simulation_data = sim(150, method="thompson")
+simulation_data = sim(150, method="thompson")
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-#viz_data(simulation_data, source=x₀, incl_model=true)
+viz_data(simulation_data, source=r₀, incl_model=true)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
+# ╠═891d47b7-d69b-4cec-bc98-ae2b30a69f69
 # ╠═07e55858-de4c-44ae-a6b4-813e2dafda17
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
 # ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
@@ -1003,6 +1011,7 @@ end
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╠═db10922f-4b36-4865-992c-7ae4a017a569
 # ╠═f5650a8a-0f97-40ce-a7d2-02b069333203
 # ╠═d9b50776-fcfc-4dd4-95c7-bf806323e744
 # ╠═ede24ec8-9bd9-4642-b2de-a93e6095dc3a
