@@ -46,6 +46,8 @@ begin
 	
 	# diffusion coefficient
 	D = 25.0 # m²/min
+	# constant attenuation for air
+	Σ_air = 0.015
 	
 	# Detector Parameters
 	ϵ = 0.95 #efficiency
@@ -56,7 +58,7 @@ begin
 	r₀ = [25.0, 4.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
-	mCi = 0.5
+	mCi = 0.050 #50 μCi
 	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
 
 	# colors
@@ -66,7 +68,10 @@ begin
 end
 
 # ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
-I
+function attenuation_constant(r::Vector{Float64}, r₀; Σ::Float64=Σ_air)
+    distance = norm(r .- r₀)
+    return exp(-Σ * distance)
+end
 
 # ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 md"## Poisson distr"
@@ -80,9 +85,11 @@ Generates a Poisson distribution and if `measure::Bool=false` returns the mean v
 * `I::Float64` - source strength in Bq.
 """
 function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_distr::Bool=false)
-	distance = norm(r .- r₀)
-	attenuation = Σ * distance
+	distance = norm(r₀ .- r)
+	attenuation = attenuation_constant(r, r₀)
 	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
+
+	λ = max(λ, 0.0)
 	
 	if ret_distr
 		return Poisson(λ)
@@ -95,46 +102,6 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 		return mean(Poisson(λ))
 	end
 end
-
-# ╔═╡ db10922f-4b36-4865-992c-7ae4a017a569
-rand(Poisson(1.5)) 
-
-# ╔═╡ f5650a8a-0f97-40ce-a7d2-02b069333203
-count_Poisson([10.0, 1.0], r₀, I)
-
-# ╔═╡ d9b50776-fcfc-4dd4-95c7-bf806323e744
-count_Poisson([10.0, 1.0], r₀, I, measure=true)
-
-# ╔═╡ ede24ec8-9bd9-4642-b2de-a93e6095dc3a
-#=
-using Distributions, LinearAlgebra
-
-# --- Known parameters for detector i ---
-r_source = [x_s, y_s]         # Source location
-r_det = [x_i, y_i]            # Detector i position
-I = 1.0e6                     # Source intensity (arbitrary units)
-Δt = 10.0                     # Seconds
-ε_int = 0.3                   # 30% efficiency
-A = 0.0224                    # m² face area
-Σ_function = r -> 0.2         # Function returning macroscopic cross-section at r [1/m]
-
-# --- Compute Euclidean distance and path ---
-r_vec = r_det .- r_source
-distance = norm(r_vec)
-
-# --- Approximate line integral of Σ along r -> r_i using numerical quadrature ---
-n_samples = 100
-t_vals = range(0, stop=1, length=n_samples)
-path_points = [r_source .+ t .* r_vec for t in t_vals]
-Σ_vals = [Σ_function(r) for r in path_points]
-attenuation_integral = sum(Σ_vals) * (distance / n_samples)
-
-# --- Compute expected count (mean of Poisson) ---
-d̄ = I * Δt * ε_int * (A / (4π * distance^2)) * exp(-attenuation_integral)
-
-
-
-=#
 
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
 mean(count_Poisson(r₀, r₀, I)) # warning: diverges at center.
@@ -186,8 +153,14 @@ begin
 	fig
 end
 
+# ╔═╡ 2e90b796-d3c2-45fa-8b51-fc01ce3345e0
+begin
+	x = 10.2e7
+[10.0^e for e in range(0, log10(x), length=6)]
+end
+
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=5.0*10^7)
+function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
 	#=colormap = ColorScheme(
 	    vcat(
 	        ColorSchemes.grays[end],
@@ -209,7 +182,7 @@ function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vect
 end
 
 # ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
-function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=5.0*10^7)
+function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e5)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -231,7 +204,8 @@ function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.
 
 	hm, _ = viz_c_truth!(ax, scale_option_2, res=res, L=L, r₀=r₀, I=I, source=source, scale_max=scale_max)
 
-	colorbar_tick_values = [0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 5e7]
+	colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+	colorbar_tick_values[1] = 0.0
 	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 	
 	tick_pos = scale_option_2.(colorbar_tick_values)
@@ -242,7 +216,7 @@ function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.
 end
 
 # ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
-viz_c_truth(source=r₀, I=I)
+viz_c_truth(I=I)
 
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
@@ -294,7 +268,7 @@ md"""
 """
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=5.0*10^7)	    
+function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=1e6)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -311,7 +285,9 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 		
 		hm, counts = viz_c_truth!(ax, scale, res=res, L=L, r₀=r₀, I=I, scale_max=scale_max)
 
-		colorbar_tick_values = [0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 5e7]
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
 		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
@@ -320,7 +296,7 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	
 	positions = [(row["r [m]"][1], row["r [m]"][2]) for row in eachrow(data)]
 	color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
-	colors = [get(reverse(ColorSchemes.hot), i) for i in range(0, stop=1.0, length=length(positions))]
+	colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
 	widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
 	
 	for i in 1:length(positions)-1
@@ -339,7 +315,8 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 			colormap=colormap,
 			colorscale = scale,
 			colorrange=(0.0, scale_max),
-			strokewidth=2
+			strokewidth=2,
+			markersize=11
 		)
 	else
 		sc = scatter!(
@@ -347,7 +324,8 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 			[row["r [m]"][2] for row in eachrow(data)],
 			color=[row["counts"][1] for row in eachrow(data)],
 			colormap=colormap,
-			strokewidth=2
+			strokewidth=2,
+			markersize=11
 		)
 	end
 
@@ -647,9 +625,6 @@ function expected_entropy(
 
 	
 end
-
-# ╔═╡ 0780925f-f0b3-4642-b3ea-dc523077fe90
-π
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -1011,10 +986,6 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
-# ╠═db10922f-4b36-4865-992c-7ae4a017a569
-# ╠═f5650a8a-0f97-40ce-a7d2-02b069333203
-# ╠═d9b50776-fcfc-4dd4-95c7-bf806323e744
-# ╠═ede24ec8-9bd9-4642-b2de-a93e6095dc3a
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
 # ╟─f1e61610-4417-4617-b967-f1299b3aa726
 # ╠═794c0228-83a1-47d2-8d8e-80f3eb4d154c
@@ -1023,6 +994,7 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╠═0fa42c7c-3dc5-478e-a1d5-8926b927e254
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
+# ╠═2e90b796-d3c2-45fa-8b51-fc01ce3345e0
 # ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
@@ -1059,7 +1031,6 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 # ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
 # ╠═83052e75-db08-4e0a-8c77-35487c612dae
-# ╠═0780925f-f0b3-4642-b3ea-dc523077fe90
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
