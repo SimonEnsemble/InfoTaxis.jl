@@ -4,6 +4,18 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    return quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
 # ╔═╡ 285d575a-ad5d-401b-a8b1-c5325e1d27e9
 begin
 	import Pkg; Pkg.activate()
@@ -267,6 +279,44 @@ md"""
 ## viz data
 """
 
+# ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
+function viz_path!(ax, data::DataFrame; scale_max::Float64=1e6)
+
+	positions = [(row["r [m]"][1], row["r [m]"][2]) for row in eachrow(data)]
+	#=
+	color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
+	line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
+	line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
+	=#
+	if length(positions) > 1
+	    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
+	    line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
+	    line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
+	
+	    for i in 1:length(positions)-1
+	        r1, y1 = positions[i]
+	        r2, y2 = positions[i+1]
+	        lines!(ax, [r1, r2], [y1, y2], color=line_colors[i], linewidth=line_widths[i], joinstyle = :round)
+	    end
+	end
+
+	scale = ReversibleScale(
+		    x -> log10(x + 1),   # forward: avoids log(0)
+		    x -> 10^x - 1        # inverse
+		)
+
+	sc = scatter!(
+			[row["r [m]"][1] for row in eachrow(data)],
+			[row["r [m]"][2] for row in eachrow(data)],
+			color=[row["counts"][1] for row in eachrow(data)],
+			colormap=colormap,
+			colorscale = scale,
+			colorrange=(0.0, scale_max),
+			strokewidth=2,
+			markersize=11
+		)
+end
+
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=1e6)	    
 	fig = Figure()
@@ -293,41 +343,8 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
 	
 	end
-	
-	positions = [(row["r [m]"][1], row["r [m]"][2]) for row in eachrow(data)]
-	color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
-	colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
-	widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
-	
-	for i in 1:length(positions)-1
-	    r1, y1 = positions[i]
-	    r2, y2 = positions[i+1]
-	    lines!(ax, [r1, r2], [y1, y2], color=colors[i], linewidth=widths[i], joinstyle = :round)
-	end
-	#=lines!(	[row["x [m]"][1] for row in eachrow(data)],
-		[row["x [m]"][2] for row in eachrow(data)], joinstyle = :round,
-		color=[ColorSchemes.magma[i] for i in range(0, stop=1.0, length=nrow(data))], linewidth=collect(reverse(range(0.1, stop=5.0, length=nrow(data)))))=#
-	if incl_model
-		sc = scatter!(
-			[row["r [m]"][1] for row in eachrow(data)],
-			[row["r [m]"][2] for row in eachrow(data)],
-			color=[row["counts"][1] for row in eachrow(data)],
-			colormap=colormap,
-			colorscale = scale,
-			colorrange=(0.0, scale_max),
-			strokewidth=2,
-			markersize=11
-		)
-	else
-		sc = scatter!(
-			[row["r [m]"][1] for row in eachrow(data)],
-			[row["r [m]"][2] for row in eachrow(data)],
-			color=[row["counts"][1] for row in eachrow(data)],
-			colormap=colormap,
-			strokewidth=2,
-			markersize=11
-		)
-	end
+
+	viz_path!(ax, data, scale_max=scale_max)
 
 	if ! isnothing(source)
 		scatter!([source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
@@ -343,6 +360,9 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	end
 	fig
 end
+
+# ╔═╡ 1beef9ea-0344-4ebc-8fbf-64083e2cd592
+size(data)[1]
 
 # ╔═╡ d38aeeca-4e5a-40e1-9171-0a187e84eb69
 viz_data(data, source=r₀)
@@ -400,16 +420,34 @@ end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 begin
-	local fig = Figure()
-	local ax = Axis(fig[1, 1])
-scatter!(ax,
-	chain[:, "r₀[1]"], chain[:, "r₀[2]"], marker=:+
-)
-	scatter!(ax, r₀[1], r₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
-	axislegend(ax, location=:tr)
-	
-	fig
+	function viz_chain_data(chain; save_num::Int64=0, data::Union{Nothing, DataFrame}=nothing)
+		fig = Figure()
+		ax = Axis(fig[1, 1])
+	scatter!(ax,
+		chain[:, "r₀[1]"], chain[:, "r₀[2]"], marker=:+
+	)
+		scatter!(ax, r₀[1], r₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
+		axislegend(ax, location=:tr)
+
+		xlims!(-1, L+1)
+		ylims!(-1, L+1)
+
+
+
+		if ! isnothing(data)
+			viz_path!(ax, data)
+		end
+
+		if save_num > 0
+			save("$(save_num).png", fig)
+		end
+		
+		return fig
+	end
 end
+
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain)
 
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
@@ -924,10 +962,6 @@ function sim(
 	robot_path = [robot_start]
 
 	for iter = 1:num_steps
-		if norm([robot_path[end][i] - r₀[i] for i=1:2]) < Δr
-			@info "Source found at step $(iter), robot at location $(robot_path[end])"
-			break
-		end
 
 		model = rad_model(sim_data)
 
@@ -941,6 +975,11 @@ function sim(
 		end
 		
 		P = chain_to_P(model_chain)
+
+		if norm([robot_path[end][i] - r₀[i] for i=1:2]) < Δr
+			@info "Source found at step $(iter), robot at location $(robot_path[end])"
+			break
+		end
 		
 		best_direction = find_opt_choice(
 			robot_path, 
@@ -985,6 +1024,19 @@ simulation_data, simulation_chains = sim(150, method="thompson", save_chains=tru
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data, source=r₀, incl_model=true)
 
+# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
+@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1), show_value=true)
+
+# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
+begin
+	#chain_val = 10
+	current_chain = simulation_chains[chain_val]
+	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
+end
+
+# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
+ viz_posterior(current_chain)
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═891d47b7-d69b-4cec-bc98-ae2b30a69f69
@@ -1012,6 +1064,8 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
 # ╟─a7ecec81-8941-491b-a12e-c6e222276834
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
+# ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
+# ╠═1beef9ea-0344-4ebc-8fbf-64083e2cd592
 # ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
 # ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
@@ -1019,6 +1073,7 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╠═96ce5328-f158-418c-96f6-1422b327b143
 # ╠═388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
+# ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 # ╠═a8c1cf59-2afa-4e50-9933-58b716b57808
@@ -1048,3 +1103,6 @@ viz_data(simulation_data, source=r₀, incl_model=true)
 # ╠═e278ec3e-c524-48c7-aa27-dd372daea005
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
+# ╠═962d552d-9cb2-4a69-9338-5995f7788b96
+# ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
+# ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
