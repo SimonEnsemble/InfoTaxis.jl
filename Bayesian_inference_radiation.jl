@@ -903,12 +903,13 @@ function sim(
 	r₀::Vector{Float64}=[25.0, 4.0],
 	R::Float64=10.0,
 	use_avg::Bool=true,
-	method::String="infotaxis"
+	method::String="thompson",
+	save_chains::Bool=false
 )
 
 	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
 	
-	sim_results = Dict()
+	sim_chains = Dict()
 
 	#times = 1:num_steps
 	#xs = robot_start
@@ -934,6 +935,11 @@ function sim(
 		model_chain = DataFrame(
 			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
 		)
+
+		if save_chains
+			sim_chains[iter] = model_chain
+		end
+		
 		P = chain_to_P(model_chain)
 		
 		best_direction = find_opt_choice(
@@ -966,11 +972,15 @@ function sim(
 		)
 	end
 
-	return sim_data
+	if save_chains
+		return sim_data, sim_chains
+	else
+		return sim_data
+	end
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data = sim(150, method="thompson")
+simulation_data, simulation_chains = sim(150, method="thompson", save_chains=true)
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data, source=r₀, incl_model=true)
