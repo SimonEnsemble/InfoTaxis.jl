@@ -1022,6 +1022,17 @@ md"""
 * Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
 """
 
+# ╔═╡ 35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
+pwd()
+
+# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
+begin
+	# Locate files for which data needs to be extracted
+	dir_name = "sim_data"
+	data_dir = joinpath(pwd(), dir_name)
+	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
+end
+
 # ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
 
 
@@ -1094,4 +1105,6 @@ md"""
 # ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
 # ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
 # ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+# ╠═35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
+# ╠═2b3183d1-f4ca-4549-a43c-b97958308238
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
