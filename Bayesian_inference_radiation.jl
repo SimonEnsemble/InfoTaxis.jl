@@ -472,9 +472,10 @@ heatmap(r_bin_centers, r_bin_centers, P)
 function viz_posterior(chain::DataFrame)
 	fig = Figure()
 
-	# dist'n of R
-	ax_t = Axis(fig[1, 1], xlabel="R [g/L]", ylabel="density")
-	hist!(chain[:, "I"])
+	# dist'n of I
+	ax_t = Axis(fig[1, 1], xlabel="R [g/L]", ylabel="density", xscale=log10)
+	hist!(ax_t, chain[:, "I"], bins=[10.0^e for e in range(0, log10(I_max), length=50)])
+	#xscale!(ax_t, :log10)
 
 	# dist'n of r₀
 	ax_b = Axis(
@@ -493,8 +494,14 @@ function viz_posterior(chain::DataFrame)
 	fig
 end
 
+# ╔═╡ 4ffaf881-d075-42cc-80d2-d75f6e92d60f
+[10.0^e for e in range(5, log10(I_max), length=10)]
+
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
+
+# ╔═╡ 06ecc454-9cd5-432d-bc1c-b269ee3f0794
+chain
 
 # ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
 md"# infotaxis"
@@ -1015,6 +1022,9 @@ md"""
 * Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
 """
 
+# ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
+
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═891d47b7-d69b-4cec-bc98-ae2b30a69f69
@@ -1063,7 +1073,9 @@ md"""
 # ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
 # ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
+# ╠═4ffaf881-d075-42cc-80d2-d75f6e92d60f
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
+# ╠═06ecc454-9cd5-432d-bc1c-b269ee3f0794
 # ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
 # ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
 # ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
@@ -1082,3 +1094,4 @@ md"""
 # ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
 # ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
 # ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+# ╠═e62ba8da-663a-4b58-afe6-910710d7518e
