@@ -102,7 +102,9 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 	attenuation = attenuation_constant(r, r₀)
 	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
 
-	λ = max(λ, 0.0)
+	if isnan(λ) || λ < 0
+    	return Poisson(1e-10)
+	end
 	
 	if ret_distr
 		return Poisson(λ)
@@ -117,7 +119,7 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 end
 
 # ╔═╡ 16c7399a-6870-42aa-bb25-3956a600eca8
-
+log(1 + exp(10.0))
 
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
 mean(count_Poisson(r₀, r₀, I)) # warning: diverges at center.
@@ -205,7 +207,7 @@ begin
 	Δr = 2.0 # m (step length for robot)
 	robot_path = [[0.0, 0.0]] # begin at origin
 
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol)
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δr::Float64=Δr)
 		if direction == :left
 			Δ = [-Δr, 0.0]
 		elseif direction == :right
@@ -221,9 +223,9 @@ begin
 		push!(robot_path, robot_path[end] + Δ)
 	end
 
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int)
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δr::Float64=Δr)
 		for i = 1:n
-			move!(robot_path, direction)
+			move!(robot_path, direction, Δr=Δr)
 		end
 	end
 
@@ -504,7 +506,7 @@ viz_posterior(chain)
 chain
 
 # ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
-md"# infotaxis"
+md"# infotaxis & Thompson sampling"
 
 # ╔═╡ 14b34270-b47f-4f22-9ba4-db294f2c029c
 md"## entropy calcs"
@@ -900,116 +902,11 @@ function find_opt_choice(
 
 end
 
-# ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
+# ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
+md"""
+# Simulation informed work
+
 """
-TODO:
-input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
-"""
-function sim(
-	num_steps::Int64; 
-	robot_start::Vector{Float64}=[0.0, 0.0], 
-	num_mcmc_samples::Int64=2000,
-	num_mcmc_chains::Int64=1,
-	L::Float64=50.0,
-	Δr::Float64=2.0,
-	r₀::Vector{Float64}=[25.0, 4.0],
-	R::Float64=10.0,
-	use_avg::Bool=true,
-	method::String="thompson",
-	save_chains::Bool=false
-)
-
-	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
-	
-	sim_chains = Dict()
-
-	#times = 1:num_steps
-	#xs = robot_start
-	c_start = count_Poisson(robot_start, r₀, I, measure=true)
-
-	sim_data = DataFrame(
-		"time" => [1.0],
-		"r [m]" => [robot_start],
-		"counts" => [c_start]
-	)
-
-	robot_path = [robot_start]
-
-	for iter = 1:num_steps
-
-		model = rad_model(sim_data)
-
-		
-		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
-		)
-
-		if save_chains
-			sim_chains[iter] = model_chain
-		end
-		
-		P = chain_to_P(model_chain)
-
-		if norm([robot_path[end][i] - r₀[i] for i=1:2]) < Δr
-			@info "Source found at step $(iter), robot at location $(robot_path[end])"
-			break
-		end
-		
-		best_direction = find_opt_choice(
-			robot_path, 
-			P,
-			model_chain,
-			sim_data,
-			num_mcmc_samples=num_mcmc_samples,
-			num_mcmc_chains=num_mcmc_chains,
-			L=L,
-			Δr=Δr,
-			use_avg=use_avg,
-			method=method
-		)
-
-		if best_direction == :nothing
-			@warn "iteration $(iter) found best_direction to be :nothing"
-			return sim_data
-		end
-			
-
-		move!(robot_path, best_direction)
-		c_measurement = count_Poisson(robot_path[end], r₀, I, measure=true)
-		push!(
-			sim_data,
-			Dict("time" => iter+1.0, 
-			"r [m]" => robot_path[end], 
-			"counts" => c_measurement
-			)
-		)
-	end
-
-	if save_chains
-		return sim_data, sim_chains
-	else
-		return sim_data
-	end
-end
-
-# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data, simulation_chains = sim(50, method="thompson", save_chains=true, num_mcmc_samples=750)
-
-# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-viz_data(simulation_data, source=r₀, incl_model=true)
-
-# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
-@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1), show_value=true)
-
-# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
-begin
-	#chain_val = 10
-	current_chain = simulation_chains[chain_val]
-	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
-end
-
-# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
- viz_posterior(current_chain)
 
 # ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
 md"""
@@ -1022,6 +919,11 @@ md"""
 * Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
 """
 
+# ╔═╡ 0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
+md"""
+## Filename
+"""
+
 # ╔═╡ 35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
 pwd()
 
@@ -1032,6 +934,11 @@ begin
 	data_dir = joinpath(pwd(), dir_name)
 	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
 end
+
+# ╔═╡ 7fcecc0e-f97c-47f7-98db-0da6d6c1811e
+md"""
+# Data Import
+"""
 
 # ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
 function extract_data(data_file::String)
@@ -1109,7 +1016,237 @@ function extract_data(data_file::String)
 end
 
 # ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
-example_data = extract_data(data_files[1])
+example_data = extract_data(data_files[2])
+
+# ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
+function extract_parameters(data::Dict)
+
+	parameters = Dict()
+
+	#Δx,y and L parameters
+	Δx_y = data["y_bin_bounds"][2] - data["y_bin_bounds"][1]
+	parameters["Δx_y"] = Δx_y
+	Δz = data["z_bin_bounds"][2] - data["z_bin_bounds"][1]
+	parameters["Δz"] = Δz 
+	parameters["L_xy"] = length(data["x_bin_bounds"])-1
+	parameters["L_z"] = length(data["z_bin_bounds"])-1
+
+	#assert square grid
+	@assert Δx_y == data["x_bin_bounds"][2] - data["x_bin_bounds"][1] "x and y should have the same grid spacing!"
+	
+
+	norm_gamma_matrix = zeros(length(data["x_bin_bounds"])-1,
+							 length(data["y_bin_bounds"])-1,
+							 length(data["z_bin_bounds"])-1
+							 )
+
+
+	for row in eachrow(data["energy_field_data"])
+		x_start = data["x_bin_bounds"][1]
+		y_start = data["y_bin_bounds"][1]
+		z_start = data["z_bin_bounds"][1]
+	    # Compute indices from coordinates
+	    i = Int(round((row["X"] - x_start) / Δx_y + 0.5))
+	    j = Int(round((row["Y"] - y_start)  / Δx_y + 0.5))
+	    k = Int(round((row["Z"] - z_start)  / Δz + 0.5))
+	
+		norm_gamma_matrix[i, j, k] = row["Result"]
+	end
+
+	parameters["γ_matrix"] = norm_gamma_matrix
+
+	return parameters
+end
+
+# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
+example_params = extract_parameters(example_data)
+
+# ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
+md"""
+## visual
+"""
+
+# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+function viz_model_data(params::Dict)
+
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x", 
+	    ylabel="y"
+	)
+
+	scale = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	# x and y values 
+	xs = ys = [i*params["Δx_y"] for i=1:params["L_xy"]]
+	# convert normalized gamma to counts
+	counts_I = I * params["γ_matrix"][:, :, 1]
+
+	#build colormap with black at around 0 counts
+	colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
+	
+	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale) #, colorrange=(0, scale_max))
+
+	#establish logarithmic colorbar tick values
+	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
+end
+
+# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
+viz_model_data(example_params)
+
+# ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
+md"""
+# sample model
+"""
+
+# ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
+function sample_model(r::Vector{Float64}, params::Dict; I::Float64=I, Δr::Float64=10.0, z_index::Int=1)
+	counts_I = I * params["γ_matrix"][:, :, 1]
+	@assert count([round(Int, r[i] / Δr) <= size(counts_I, i) && r[i] >= 0.0 for i=1:2]) == 2 "r coordinate values outside of domain"
+
+	#add background noise
+	λ_background = 1.5
+	noise = rand(Poisson(λ_background)) * rand([-1, 1])
+	
+	measurement = counts_I[round(Int, r[1] / Δr)+1, round(Int, r[2] / Δr)+1, z_index] + noise
+	measurement = max(measurement, 0)
+
+	return round(Int, measurement)
+end
+
+# ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
+"""
+TODO:
+input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
+"""
+function sim(
+	num_steps::Int64; 
+	robot_start::Vector{Int64}=[0, 0], 
+	num_mcmc_samples::Int64=2000,
+	num_mcmc_chains::Int64=1,
+	L::Float64=50.0,
+	Δr::Float64=2.0,
+	r₀::Vector{Float64}=[25.0, 4.0],
+	R::Float64=10.0,
+	use_avg::Bool=true,
+	method::String="thompson",
+	save_chains::Bool=false,
+	model_params::Union{Nothing, Dict{Any, Any}}=nothing
+)
+
+	@assert (method == "infotaxis" || method == "thompson") "method must be either infotaxis or thompson: method=$(method) is invalid."
+	
+	sim_chains = Dict()
+
+	#times = 1:num_steps
+	#xs = robot_start
+	r_start = [robot_start[i] * Δr for i=1:2]
+	if isnothing(model_params)
+		c_start = count_Poisson(r_start, r₀, I, measure=true)
+	else
+		c_start = sample_model(r_start, model_params, Δr=Δr)
+	end
+	
+
+	sim_data = DataFrame(
+		"time" => [1.0],
+		"r [m]" => [r_start],
+		"counts" => [c_start]
+	)
+
+	robot_path = [r_start]
+
+	for iter = 1:num_steps
+
+		model = rad_model(sim_data)
+
+		
+		model_chain = DataFrame(
+			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+		)
+
+		if save_chains
+			sim_chains[iter] = model_chain
+		end
+		
+		P = chain_to_P(model_chain)
+
+		if norm([robot_path[end][i] - r₀[i] for i=1:2]) < Δr
+			@info "Source found at step $(iter), robot at location $(robot_path[end])"
+			break
+		end
+		
+		best_direction = find_opt_choice(
+			robot_path, 
+			P,
+			model_chain,
+			sim_data,
+			num_mcmc_samples=num_mcmc_samples,
+			num_mcmc_chains=num_mcmc_chains,
+			L=L,
+			Δr=Δr,
+			use_avg=use_avg,
+			method=method
+		)
+
+		if best_direction == :nothing
+			@warn "iteration $(iter) found best_direction to be :nothing"
+			return sim_data
+		end
+			
+
+		move!(robot_path, best_direction)
+		if isnothing(model_params)
+			c_measurement = count_Poisson(robot_path[end], r₀, I, measure=true)
+		else
+			c_measurement = sample_model(robot_path[end], model_params, Δr=Δr)
+		end
+		
+		push!(
+			sim_data,
+			Dict("time" => iter+1.0, 
+			"r [m]" => robot_path[end], 
+			"counts" => c_measurement
+			)
+		)
+	end
+
+	if save_chains
+		return sim_data, sim_chains
+	else
+		return sim_data
+	end
+end
+
+# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
+simulation_data, simulation_chains = sim(100, method="thompson", save_chains=true, num_mcmc_samples=1000, num_mcmc_chains=4)
+
+# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
+viz_data(simulation_data, source=r₀, incl_model=true)
+
+# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
+@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
+
+# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
+begin
+	#chain_val = 10
+	current_chain = simulation_chains[chain_val]
+	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
+end
+
+# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
+ viz_posterior(current_chain)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1179,8 +1316,18 @@ example_data = extract_data(data_files[1])
 # ╠═962d552d-9cb2-4a69-9338-5995f7788b96
 # ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
 # ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
+# ╟─d296d31a-d63e-4650-920e-6ab870f4b617
 # ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+# ╟─0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
 # ╠═35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
 # ╠═2b3183d1-f4ca-4549-a43c-b97958308238
+# ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
 # ╠═ce4bea8d-2da4-4832-9aa4-a348cbbe3812
+# ╠═19c95a83-670c-4ad6-82a1-5a4b6809f1d4
+# ╠═91a58f53-0d7a-4026-8786-aae78d243c61
+# ╟─0f840879-7f31-4d31-b8b9-28c6ddac19a8
+# ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+# ╠═643723ec-a1b5-4ae2-acb6-c87c6b7d63db
+# ╟─b25f5d75-9516-405b-89b6-ce685d2112ee
+# ╠═126df6ec-9074-4712-b038-9371ebdbc51d
