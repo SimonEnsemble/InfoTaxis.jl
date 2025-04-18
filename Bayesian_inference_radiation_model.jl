@@ -23,21 +23,6 @@ begin
 	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf
 end
 
-# ╔═╡ 891d47b7-d69b-4cec-bc98-ae2b30a69f69
-
-
-# ╔═╡ 07e55858-de4c-44ae-a6b4-813e2dafda17
-begin
-#=
-	#find simple atmosphere in src
-	src_dir = dirname(pathof(GasDispersion))
-	target_file_dir = joinpath(src_dir, "base")
-	target_file = joinpath(target_file_dir, "simple_atmosphere.jl")
-	#name ="C:\Users\paulm\.julia\packages\GasDispersion\WMkDx\src\base\simple_atmosphere.jl"
-	include(target_file)
-	=#
-end
-
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
 
@@ -50,14 +35,8 @@ md"known parameters."
 # ╔═╡ 064eb92e-5ff0-436a-8a2b-4a233ca4fa42
 begin
 	# size of search space
-	L = 50.0 # m
+	L = 1000.0 # m
 	
-	# velocity of wind
-	v = [-5.0, 15.0] # m/s
-	#v = [-0.0, 0.0] # m/s
-	
-	# diffusion coefficient
-	D = 25.0 # m²/min
 	# constant attenuation for air
 	Σ_air = 0.015
 	
@@ -67,7 +46,7 @@ begin
 	A = 0.0224 #m^2
 
 	# source parameters
-	r₀ = [25.0, 4.0]
+	x₀ = [25.0, 4.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
 	mCi = 0.050 #50 μCi
@@ -76,8 +55,14 @@ begin
 
 	# colors
 	colormap = ColorScheme(
-	        reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1.0])
+	        reverse([ColorSchemes.hot[i] for i in 0.0:0.01:1.0])
 	)
+
+	# Locate files for which data needs to be extracted
+	dir_name = "sim_data"
+	data_dir = joinpath(pwd(), dir_name)
+	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
+
 end
 
 # ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
@@ -118,21 +103,12 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 	end
 end
 
-# ╔═╡ 16c7399a-6870-42aa-bb25-3956a600eca8
-log(1 + exp(10.0))
-
-# ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
-mean(count_Poisson(r₀, r₀, I)) # warning: diverges at center.
-
-# ╔═╡ 5ecaca5b-f508-46fd-830e-e9492ca7b4ca
-md"ground truth"
-
 # ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 begin
 	res = 500
-	rs = range(0.0, L, length=res) # m
+	xs = range(0.0, L, length=res) # m
 mean(count_Poisson([10.0, 1.0], r₀, A))
-	counts = [count_Poisson([r₁, r₂], r₀, I) for r₁ in rs, r₂ in rs] # counts
+	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
 end
 
 # ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
@@ -141,13 +117,7 @@ md"""
 """
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
-	#=colormap = ColorScheme(
-	    vcat(
-	        ColorSchemes.grays[end],
-	        reverse([ColorSchemes.viridis[i] for i in 0.0:0.05:1.0])
-	    )
-	)=#
+function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=1000.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
 	colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
 
 	rs = range(0.0, L, length=res)
@@ -170,12 +140,6 @@ function viz_c_truth(; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.
 	    aspect=DataAspect(), 
 	    xlabel="r₁", 
 	    ylabel="r₂"
-	)
-
-	#scales:
-	scale_option_1 = ReversibleScale(
-	    x -> asinh(x / 1000),         # You can tune the denominator
-	    x -> 1000 * sinh(x)
 	)
 
 	scale_option_2 = ReversibleScale(
@@ -204,18 +168,18 @@ md"# simulate robot taking a path and measuring concentration"
 
 # ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 begin
-	Δr = 2.0 # m (step length for robot)
+	Δx = 10.0 # m (step length for robot)
 	robot_path = [[0.0, 0.0]] # begin at origin
 
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δr::Float64=Δr)
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
 		if direction == :left
-			Δ = [-Δr, 0.0]
+			Δ = [-Δx, 0.0]
 		elseif direction == :right
-			Δ = [Δr, 0.0]
+			Δ = [Δx, 0.0]
 		elseif direction == :up
-			Δ = [0.0, Δr]
+			Δ = [0.0, Δx]
 		elseif direction == :down
-			Δ = [0.0, -Δr]
+			Δ = [0.0, -Δx]
 		else
 			error("direction not valid")
 		end
@@ -223,9 +187,9 @@ begin
 		push!(robot_path, robot_path[end] + Δ)
 	end
 
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δr::Float64=Δr)
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx)
 		for i = 1:n
-			move!(robot_path, direction, Δr=Δr)
+			move!(robot_path, direction, Δx=Δx)
 		end
 	end
 
@@ -235,8 +199,8 @@ begin
 	
 	data = DataFrame(
 		"time" => 1:length(robot_path),
-		"r [m]" => robot_path,
-		"counts" => [count_Poisson(r, r₀, I, measure=true) for r in robot_path]
+		"x [m]" => robot_path,
+		"counts" => [count_Poisson(x, x₀, I, measure=true) for x in robot_path]
 	)
 end
 
@@ -292,8 +256,8 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="r₁", 
-	    ylabel="r₂"
+	    xlabel="x₁", 
+	    ylabel="x₂"
 	)
 
 	if incl_model
@@ -425,12 +389,12 @@ end
 md"### create empirical dist'n for source location"
 
 # ╔═╡ a8c1cf59-2afa-4e50-9933-58b716b57808
-r_edges = collect(0.0:Δr:L+2) .- Δr/2
+x_edges = collect(0.0:Δx:L+2) .- Δx/2
 
 # ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
 function chain_to_P(chain::DataFrame, r_edges::Vector{Float64}=r_edges)
 	hist_r₀ = fit(
-		Histogram, (chain[:, "r₀[1]"], chain[:, "r₀[2]"]), (r_edges, r_edges)
+		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (r_edges, r_edges)
 	)
 	return hist_r₀.weights / sum(hist_r₀.weights)
 end
@@ -927,16 +891,8 @@ md"""
 ## Filename
 """
 
-# ╔═╡ 35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
-pwd()
-
 # ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
-begin
-	# Locate files for which data needs to be extracted
-	dir_name = "sim_data"
-	data_dir = joinpath(pwd(), dir_name)
-	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
-end
+
 
 # ╔═╡ 7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 md"""
@@ -1324,18 +1280,13 @@ end
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
-# ╠═891d47b7-d69b-4cec-bc98-ae2b30a69f69
-# ╠═07e55858-de4c-44ae-a6b4-813e2dafda17
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
-# ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
+# ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╟─0d3b6020-a26d-444e-8601-be511c53c002
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
-# ╠═16c7399a-6870-42aa-bb25-3956a600eca8
-# ╠═0d35098d-4728-4a03-8951-7549067e0384
-# ╟─5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
@@ -1396,7 +1347,6 @@ end
 # ╟─d296d31a-d63e-4650-920e-6ab870f4b617
 # ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
 # ╟─0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
-# ╠═35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
 # ╠═2b3183d1-f4ca-4549-a43c-b97958308238
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
