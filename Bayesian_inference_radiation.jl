@@ -72,6 +72,7 @@ begin
 	Σ = 0.2 #macroscopic cross section (mean free path)
 	mCi = 0.050 #50 μCi
 	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
+	#counts/gamma - multiply this by the value normalized to #of photons
 
 	# colors
 	colormap = ColorScheme(
@@ -115,23 +116,11 @@ function count_Poisson(r::Vector{Float64}, r₀, I; measure::Bool=false, ret_dis
 	end
 end
 
+# ╔═╡ 16c7399a-6870-42aa-bb25-3956a600eca8
+
+
 # ╔═╡ 0d35098d-4728-4a03-8951-7549067e0384
 mean(count_Poisson(r₀, r₀, I)) # warning: diverges at center.
-
-# ╔═╡ f1e61610-4417-4617-b967-f1299b3aa726
-md"## GasDispersion analytical solution"
-
-# ╔═╡ 794c0228-83a1-47d2-8d8e-80f3eb4d154c
-md"""
-# TODO
-
-continue here, finish implementing GasDispersion.jl
-
-need to include a horizontal jet release type, a scenario
-"""
-
-# ╔═╡ a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
-
 
 # ╔═╡ 5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 md"ground truth"
@@ -144,32 +133,10 @@ mean(count_Poisson([10.0, 1.0], r₀, A))
 	counts = [count_Poisson([r₁, r₂], r₀, I) for r₁ in rs, r₂ in rs] # counts
 end
 
-# ╔═╡ 0fa42c7c-3dc5-478e-a1d5-8926b927e254
-begin
-	color_map = ColorScheme(
-	    vcat(
-	        ColorSchemes.grays[end],
-	        reverse([ColorSchemes.viridis[i] for i in 0.0:0.05:1.0])
-	    )
-	)
-	    
-	fig = Figure()
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="r₁", 
-	    ylabel="r₂"
-	)
-	hm  = heatmap!(rs, rs, counts, colormap=color_map, colorrange=(0.0, 50000))
-	Colorbar(fig[1, 2], hm, label = "counts [counts/s]")
-	fig
-end
-
-# ╔═╡ 2e90b796-d3c2-45fa-8b51-fc01ce3345e0
-begin
-	x = 10.2e7
-[10.0^e for e in range(0, log10(x), length=6)]
-end
+# ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
+md"""
+## true count visualization function
+"""
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
 function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=50.0, r₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
@@ -1019,7 +986,7 @@ function sim(
 end
 
 # ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data, simulation_chains = sim(150, method="thompson", save_chains=true)
+simulation_data, simulation_chains = sim(50, method="thompson", save_chains=true, num_mcmc_samples=750)
 
 # ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
 viz_data(simulation_data, source=r₀, incl_model=true)
@@ -1037,6 +1004,17 @@ end
 # ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
  viz_posterior(current_chain)
 
+# ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+md"""
+# TODO
+
+* Implement function to import data from Dr. Yang's mesh modeling software.
+
+* Once data is imported for both simulations with and without obstructions. Create visualization to match the vizualizations provided by Dr. Yang.
+
+* Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
+"""
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═891d47b7-d69b-4cec-bc98-ae2b30a69f69
@@ -1048,15 +1026,12 @@ end
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╠═16c7399a-6870-42aa-bb25-3956a600eca8
 # ╠═0d35098d-4728-4a03-8951-7549067e0384
-# ╟─f1e61610-4417-4617-b967-f1299b3aa726
-# ╠═794c0228-83a1-47d2-8d8e-80f3eb4d154c
-# ╠═a6dd0caf-0ec8-44d3-88f0-6cedad1ceaca
 # ╟─5ecaca5b-f508-46fd-830e-e9492ca7b4ca
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-# ╠═0fa42c7c-3dc5-478e-a1d5-8926b927e254
+# ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
-# ╠═2e90b796-d3c2-45fa-8b51-fc01ce3345e0
 # ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
@@ -1106,3 +1081,4 @@ end
 # ╠═962d552d-9cb2-4a69-9338-5995f7788b96
 # ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
 # ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
+# ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
