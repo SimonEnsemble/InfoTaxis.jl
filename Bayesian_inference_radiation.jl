@@ -1034,7 +1034,82 @@ begin
 end
 
 # ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
+function extract_data(data_file::String)
+	#data_of_interest = "collecting boxes"
+	@assert isfile(data_file) "$(data_file) is not a file!!!"
+	
+	flags = Dict(
+		"tally_bin_bounds" => false,
+		"x_dir" => false,
+		"y_dir" => false,
+		"z_dir" => false,
+		"energy_grid" => false
+	)
 
+	data = Dict(
+		"x_bin_bounds" => Array{Float64}(undef, 0),
+		"y_bin_bounds" => Array{Float64}(undef, 0),
+		"z_bin_bounds" => Array{Float64}(undef, 0),
+		"energy_field_data" => DataFrame(
+			Energy = Array{Float64}(undef, 0),
+			X = Array{Float64}(undef, 0),
+			Y = Array{Float64}(undef, 0),
+			Z = Array{Float64}(undef, 0),
+			Result = Array{Float64}(undef, 0),
+			RelError = Array{Float64}(undef, 0)
+		)
+	)
+
+	
+	open(data_file) do f
+		while !eof(f)
+			#read the line
+			f_line = lowercase(readline(f))
+			# replace double+ spaces with single spaces
+			s = replace(f_line, r"\s{2,}" => " ")
+
+			#check for first line of data
+			if contains(s, "tally bin boundaries")
+				flags["tally_bin_bounds"] = true
+				continue
+			elseif contains(s, "energy x y")
+				flags["energy_grid"] = true
+				continue
+			end
+
+			if flags["tally_bin_bounds"]
+				if contains(s, "energy bin boundaries")
+					flags["tally_bin_bounds"] = false
+					continue
+				end
+   				for dir in ["x", "y", "z"]
+        			if occursin("$dir direction", s)
+            			flags["x_dir"] = flags["y_dir"] = flags["z_dir"] = false
+           				flags["$(dir)_dir"] = true
+						
+						values = parse.(Float64, split(s)[3:end])
+						data["$(dir)_bin_bounds"] = values
+					elseif !(occursin("direction", s))
+						if flags["$(dir)_dir"]
+							values = parse.(Float64, split(s))
+							data["$(dir)_bin_bounds"] = vcat(data["$(dir)_bin_bounds"], values)
+						end
+					end
+				end
+			end
+
+			if flags["energy_grid"]
+				values = parse.(Float64, split(s))
+				push!(data["energy_field_data"], values)
+			end
+		end
+	end
+	
+	return data
+end
+
+# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
+example_data = extract_data(data_files[1])
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1108,3 +1183,4 @@ end
 # ╠═35f5b0af-9ca1-4d64-8dc5-6b8241ffd2c7
 # ╠═2b3183d1-f4ca-4549-a43c-b97958308238
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
+# ╠═ce4bea8d-2da4-4832-9aa4-a348cbbe3812
