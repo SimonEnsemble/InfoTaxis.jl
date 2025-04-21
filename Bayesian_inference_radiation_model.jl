@@ -243,19 +243,19 @@ end
 
 # ╔═╡ 1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 begin
-	num_models = length(data_files)
-	model_data = [import_data(data_files[i]) for i=1:num_models]
+	num_sims = length(data_files)
+	rad_sim_data = [import_data(data_files[i]) for i=1:num_sims]
 
-	test_model = model_data[1]
+	test_rad_sim = rad_sim_data[1]
 end
 
 # ╔═╡ 7278adb5-2da1-4ea1-aa38-d82c23510242
 md"""
-# Imported Data Visual
+## Visualize - Imported Data
 """
 
 # ╔═╡ 7211ea6e-6535-4e22-a2ef-a1994e81d22a
-function viz_model_data!(ax, model::RadSim; z_slice::Int64=1)
+function viz_model_data!(ax, rad_sim::RadSim; z_slice::Int64=1)
 	
 	scale = ReversibleScale(
 	    x -> log10(x + 1),   # forward: avoids log(0)
@@ -266,16 +266,16 @@ function viz_model_data!(ax, model::RadSim; z_slice::Int64=1)
 	#colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
 
 	# x and y values 
-	xs = ys = [val for val in 0:model.Δxy:model.Lxy]
+	xs = ys = [val for val in 0:rad_sim.Δxy:rad_sim.Lxy]
 	#counts
-	counts_I = I * model.γ_matrix[z_slice]
+	counts_I = I * rad_sim.γ_matrix[z_slice]
 
 	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale)
 	return hm
 end
 
 # ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-function viz_model_data(model::RadSim; z_slice::Int64=1)
+function viz_model_data(rad_sim::RadSim; z_slice::Int64=1)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -284,9 +284,9 @@ function viz_model_data(model::RadSim; z_slice::Int64=1)
 	    ylabel="y"
 	)
 
-	counts_I = I * model.γ_matrix[z_slice]
+	counts_I = I * rad_sim.γ_matrix[z_slice]
 	
-	hm = viz_model_data!(ax, model)
+	hm = viz_model_data!(ax, rad_sim)
 
 	#establish logarithmic colorbar tick values
 	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
@@ -299,7 +299,10 @@ function viz_model_data(model::RadSim; z_slice::Int64=1)
 end
 
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
-viz_model_data(test_model)
+viz_model_data(test_rad_sim)
+
+# ╔═╡ 7ed3ac02-2915-4995-8ff4-ea781b283f7f
+argmax(test_rad_sim.γ_matrix[1])
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -326,7 +329,7 @@ end
 
 # ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
 md"""
-## Analytical model visualization function
+## Visualize - Analytical Model
 """
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
@@ -377,7 +380,7 @@ end
 mean(Poisson(5.0))
 
 # ╔═╡ 5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
-viz_c_analytical(scale_max = maximum(I * test_model.γ_matrix[1]))
+viz_c_analytical(scale_max = maximum(I * test_rad_sim.γ_matrix[1]))
 
 # ╔═╡ 31864185-6eeb-4260-aa77-c3e94e467558
 md"# Simulate Movement"
@@ -386,8 +389,8 @@ md"# Simulate Movement"
 md"## sample environment"
 
 # ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
-function sample_model(x::Vector{Float64}, model::RadSim; I::Float64=I, Δx::Float64=Δx, z_index::Int=1)
-	counts_I = I * model.γ_matrix[z_index]
+function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Float64=Δx, z_index::Int=1)
+	counts_I = I * rad_sim.γ_matrix[z_index]
 	@assert count([round(Int, x[i] / Δx) <= size(counts_I, i) && x[i] >= 0.0 for i=1:2]) == 2 "r coordinate values outside of domain"
 
 	#add background noise
@@ -445,44 +448,17 @@ begin
 	data = DataFrame(
 		"time" => 1:length(robot_path),
 		"x [m]" => robot_path,
-		"counts" => [sample_model(x, test_model, I=I) for x in robot_path]
+		"counts" => [sample_model(x, test_rad_sim, I=I) for x in robot_path]
 	)
 end
 
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-TODO("EVERYTHING BELOW HERE TO BE REWORKED")
-
-# ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-begin
-	res = 500
-	xs = range(0.0, L, length=res) # m
-mean(count_Poisson([10.0, 1.0], x₀, A))
-	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
-end
-
-# ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
-viz_c_truth(I=I)
-
-# ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
-md"# simulate robot taking a path and measuring concentration"
-
-# ╔═╡ 0d01df41-c0f3-4441-a9af-75d239820ba8
-data
-
-# ╔═╡ a7ecec81-8941-491b-a12e-c6e222276834
-md"""
-## viz data
-"""
+# ╔═╡ de738002-3e80-4aab-bedb-f08533231ed7
+md"## Visualize - Movement and Measurement"
 
 # ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
-function viz_path!(ax, data::DataFrame; scale_max::Float64=1e6)
+function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6)
 
 	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(data)]
-	#=
-	color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
-	line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
-	line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
-	=#
 	if length(positions) > 1
 	    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
 	    line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
@@ -501,9 +477,9 @@ function viz_path!(ax, data::DataFrame; scale_max::Float64=1e6)
 		)
 
 	sc = scatter!(
-			[row["x [m]"][1] for row in eachrow(data)],
-			[row["x [m]"][2] for row in eachrow(data)],
-			color=[row["counts"][1] for row in eachrow(data)],
+			[row["x [m]"][1] for row in eachrow(path_data)],
+			[row["x [m]"][2] for row in eachrow(path_data)],
+			color=[row["counts"][1] for row in eachrow(path_data)],
 			colormap=colormap,
 			colorscale = scale,
 			colorrange=(0.0, scale_max),
@@ -513,7 +489,7 @@ function viz_path!(ax, data::DataFrame; scale_max::Float64=1e6)
 end
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothing, incl_model::Bool=true, res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], R::Float64=10.0, scale_max::Float64=1e6)	    
+function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Int=500, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1)	    
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -522,13 +498,21 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	    ylabel="x₂"
 	)
 
-	if incl_model
+	if ! isnothing(rad_sim)
+		#get source, grid size and scale_max from data
+		counts_I = I * rad_sim.γ_matrix[z_slice]
+		source_coord = argmax(counts_I)
+		source = [coord * rad_sim.Δxy for coord in source_coord.I]
+		scale_max = maximum(counts_I)
+		L = rad_sim.Lxy
+		
 		scale = ReversibleScale(
 		    x -> log10(x + 1),   # forward: avoids log(0)
 		    x -> 10^x - 1        # inverse
 		)
 		
-		hm, counts = viz_c_truth!(ax, scale, res=res, L=L, x₀=x₀, I=I, scale_max=scale_max)
+		
+		hm = viz_model_data!(ax, rad_sim)
 
 		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
 		colorbar_tick_values[1] = 0.0
@@ -539,10 +523,10 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	
 	end
 
-	viz_path!(ax, data, scale_max=scale_max)
+	viz_path!(ax, path_data, scale_max=scale_max)
 
-	if ! isnothing(source)
-		scatter!([source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+	if ! isnothing(x₀) || ! isnothing(rad_sim)
+		scatter!([source[1]], [source[2]], color="black", marker=:xcross, markersize=25, label="source", strokewidth=1)
 
 		#axislegend(location=:tr)
 	end
@@ -550,17 +534,31 @@ function viz_data(data::DataFrame; source::Union{Nothing, Vector{Float64}}=nothi
 	xlims!(0-Δx, L+Δx)
 	ylims!(0-Δx, L+Δx)
 	
-	if ! incl_model
+	if isnothing(rad_sim)
 		Colorbar(fig[1, 2], sc, label="counts")
 	end
 	fig
 end
 
+# ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
+viz_data_collection(data, rad_sim=test_rad_sim)
+
+# ╔═╡ 9c3d7806-cc87-4d63-ada2-9e1972c3743b
+
+
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
+
+# ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
+begin
+	res = 500
+	xs = range(0.0, L, length=res) # m
+mean(count_Poisson([10.0, 1.0], x₀, A))
+	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
+end
+
 # ╔═╡ 1beef9ea-0344-4ebc-8fbf-64083e2cd592
 size(data)[1]
-
-# ╔═╡ d38aeeca-4e5a-40e1-9171-0a187e84eb69
-viz_data(data, source=x₀)
 
 # ╔═╡ 26a4354f-826e-43bb-9f52-eea54cc7e30f
 I_max = 1e11 #emmissions/s
@@ -1381,6 +1379,7 @@ end
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
+# ╠═7ed3ac02-2915-4995-8ff4-ea781b283f7f
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
@@ -1396,16 +1395,14 @@ end
 # ╠═3c0f8b63-6276-488c-a376-d5c554a5555d
 # ╠═ddc23919-17a7-4c78-86f0-226e4d447dbe
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
-# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
-# ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-# ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
-# ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
-# ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
-# ╟─a7ecec81-8941-491b-a12e-c6e222276834
+# ╟─de738002-3e80-4aab-bedb-f08533231ed7
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
+# ╠═9fbe820c-7066-40b5-9617-44ae0913928e
+# ╠═9c3d7806-cc87-4d63-ada2-9e1972c3743b
+# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
+# ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╠═1beef9ea-0344-4ebc-8fbf-64083e2cd592
-# ╠═d38aeeca-4e5a-40e1-9171-0a187e84eb69
 # ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
