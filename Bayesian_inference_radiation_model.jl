@@ -38,6 +38,7 @@ md"## constants"
 begin
 	# size of search space
 	L = 1000.0 # m
+	Δx = 10.0 # m
 	
 	# constant attenuation for air
 	Σ_air = 0.015
@@ -106,7 +107,7 @@ md"### rad sim"
 
 # ╔═╡ dd357479-64ef-4823-8aba-931323e89aed
 struct RadSim
-    γ_matrix::Vector{Matrix{Float64}}  # Vector of 2D Float64 matrices
+    γ_matrix::Vector{Matrix{Float64}}
     Δxy::Float64
     Δz::Float64
     Lxy::Float64
@@ -242,12 +243,10 @@ function import_data(data_file::String)
 	return rad_sim
 end
 
-# ╔═╡ 981e2f83-4070-4a12-b090-9ce8ba1452c2
-data_files
-
 # ╔═╡ 1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 begin
-	model_data = import_data(data_files[1])
+	num_models = length(data_files)
+	model_data = [import_data(data_files[i]) for i=1:num_models]
 end
 
 # ╔═╡ 7278adb5-2da1-4ea1-aa38-d82c23510242
@@ -255,23 +254,59 @@ md"""
 # Imported Data Visual
 """
 
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-md"""
-# TODO BELOW HERE NEEDS TO BE REWORKED!!!
-"""
+# ╔═╡ 7211ea6e-6535-4e22-a2ef-a1994e81d22a
+function viz_model_data!(ax, model::RadSim; z_slice::Int64=1)
+	
+	scale = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	#build colormap with black at around 0 counts
+	colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
+
+	# x and y values 
+	xs = ys = [val for val in 0:model.Δxy:model.Lxy]
+	#counts
+	counts_I = I * model.γ_matrix[z_slice]
+
+	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale)
+	return hm
+end
+
+# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+function viz_model_data(model::RadSim; z_slice::Int64=1)
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x", 
+	    ylabel="y"
+	)
+
+	counts_I = I * model.γ_matrix[z_slice]
+	
+	hm = viz_model_data!(ax, model)
+
+	#establish logarithmic colorbar tick values
+	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
+end
+
+# ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
+viz_model_data(model_data[1])
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
-md"# forward model (also ground-truth)"
-
-# ╔═╡ 0d3b6020-a26d-444e-8601-be511c53c002
-md"known parameters."
-
-# ╔═╡ b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
-md"## Poisson distr"
+md"# Analytical (Poisson) Model"
 
 # ╔═╡ e622cacd-c63f-416a-a4ab-71ba9d593cc8
 """
-Generates a Poisson distribution and if `measure::Bool=false` returns the mean value of the poisson distribution at r. If `measure::Bool=true`, returns a sample measurement.
+Generates a Poisson distribution based on position, source position and source strength.
 
 * `x::Vector{Float64}` - Measurement/true value location.
 * `x₀::Vector{Float64}` - source location.
@@ -281,22 +316,69 @@ function count_Poisson(x::Vector{Float64}, x₀, I; measure::Bool=false, ret_dis
 	distance = norm(x₀ .- x)
 	attenuation = attenuation_constant(x, x₀)
 	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
-
-	if isnan(λ) || λ < 0
-    	return Poisson(0.0)
-	end
 	
 	if ret_distr
-		return Poisson(λ)
-	end
-	
-	if measure
-		λ_background = 1.5
-		return rand(Poisson(λ)) + rand(Poisson(λ_background)) 
-	else
-		return mean(Poisson(λ))
+		if isnan(λ) || λ < 0
+    		return Poisson(0.0)
+		end
 	end
 end
+
+# ╔═╡ 31864185-6eeb-4260-aa77-c3e94e467558
+md"# Simulate Movement"
+
+# ╔═╡ c6c39d74-4620-43df-8eb1-83c436924530
+function get_Δ(direction::Symbol; Δx::Float64=Δx)
+		if direction == :left
+			Δ = [-Δx, 0.0]
+		elseif direction == :right
+			Δ = [Δx, 0.0]
+		elseif direction == :up
+			Δ = [0.0, Δx]
+		elseif direction == :down
+			Δ = [0.0, -Δx]
+		else
+			error("direction not valid")
+		end
+
+	return Δ
+end
+
+# ╔═╡ 3c0f8b63-6276-488c-a376-d5c554a5555d
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
+		Δ = get_Δ(direction, Δx=Δx)
+		push!(robot_path, robot_path[end] + Δ)
+	end
+
+# ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx)
+		for i = 1:n
+			move!(robot_path, direction, Δx=Δx)
+		end
+	end
+
+# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
+begin
+	#Δx = 10.0 # m (step length for robot)
+	robot_path = [[0.0, 0.0]] # begin at origin
+
+
+
+
+
+	move!(robot_path, :up, 5)
+	move!(robot_path, :right, 7)
+	# move!(robot_path, :up, 3)
+	
+	data = DataFrame(
+		"time" => 1:length(robot_path),
+		"x [m]" => robot_path,
+		"counts" => [count_Poisson(x, x₀, I, measure=true) for x in robot_path]
+	)
+end
+
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
 
 # ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 begin
@@ -360,44 +442,6 @@ viz_c_truth(I=I)
 
 # ╔═╡ b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 md"# simulate robot taking a path and measuring concentration"
-
-# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
-begin
-	Δx = 10.0 # m (step length for robot)
-	robot_path = [[0.0, 0.0]] # begin at origin
-
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
-		if direction == :left
-			Δ = [-Δx, 0.0]
-		elseif direction == :right
-			Δ = [Δx, 0.0]
-		elseif direction == :up
-			Δ = [0.0, Δx]
-		elseif direction == :down
-			Δ = [0.0, -Δx]
-		else
-			error("direction not valid")
-		end
-
-		push!(robot_path, robot_path[end] + Δ)
-	end
-
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx)
-		for i = 1:n
-			move!(robot_path, direction, Δx=Δx)
-		end
-	end
-
-	move!(robot_path, :up, 5)
-	move!(robot_path, :right, 7)
-	# move!(robot_path, :up, 3)
-	
-	data = DataFrame(
-		"time" => 1:length(robot_path),
-		"x [m]" => robot_path,
-		"counts" => [count_Poisson(x, x₀, I, measure=true) for x in robot_path]
-	)
-end
 
 # ╔═╡ 0d01df41-c0f3-4441-a9af-75d239820ba8
 data
@@ -579,6 +623,41 @@ begin
 		return fig
 	end
 end
+
+# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
+begin
+	function viz_chain_data(chain, params::Dict, counts_I::Matrix{Float64}; save_num::Int64=0, data::Union{Nothing, DataFrame}=nothing, L::Float64=50.0, show_source::Bool=true)
+		fig = Figure()
+		ax = Axis(fig[1, 1])
+
+		xlims!(-1, L+1)
+		ylims!(-1, L+1)
+
+		viz_model_data!(ax, params, counts_I)
+
+	scatter!(ax,
+		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
+	)
+		if show_source
+			scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
+			axislegend(ax, location=:tr)
+		end
+
+
+		if ! isnothing(data)
+			viz_path!(ax, data)
+		end
+
+		if save_num > 0
+			save("$(save_num).png", fig)
+		end
+		
+		return fig
+	end
+end
+
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain)
 
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
@@ -1103,85 +1182,6 @@ md"""
 ## visual
 """
 
-# ╔═╡ 7211ea6e-6535-4e22-a2ef-a1994e81d22a
-function viz_model_data!(ax, params::Dict, counts_I)
-	
-	scale = ReversibleScale(
-	    x -> log10(x + 1),   # forward: avoids log(0)
-	    x -> 10^x - 1        # inverse
-	)
-
-	#build colormap with black at around 0 counts
-	colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
-
-	# x and y values 
-	xs = ys = [i*params["Δx_y"] for i=1:params["L_xy"]]
-	# convert normalized gamma to counts
-	counts_I = I * params["γ_matrix"][:, :, 1]
-
-	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale)
-	return hm
-end
-
-# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
-begin
-	function viz_chain_data(chain, params::Dict, counts_I::Matrix{Float64}; save_num::Int64=0, data::Union{Nothing, DataFrame}=nothing, L::Float64=50.0, show_source::Bool=true)
-		fig = Figure()
-		ax = Axis(fig[1, 1])
-
-		xlims!(-1, L+1)
-		ylims!(-1, L+1)
-
-		viz_model_data!(ax, params, counts_I)
-
-	scatter!(ax,
-		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
-	)
-		if show_source
-			scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
-			axislegend(ax, location=:tr)
-		end
-
-
-		if ! isnothing(data)
-			viz_path!(ax, data)
-		end
-
-		if save_num > 0
-			save("$(save_num).png", fig)
-		end
-		
-		return fig
-	end
-end
-
-# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain)
-
-# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-function viz_model_data(params::Dict)
-	fig = Figure()
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="x", 
-	    ylabel="y"
-	)
-
-	counts_I = I * params["γ_matrix"][:, :, 1]
-
-	hm = viz_model_data!(ax, params, counts_I)
-
-	#establish logarithmic colorbar tick values
-	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
-	colorbar_tick_values[1] = 0.0
-	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-
-	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
-	
-	fig
-end
-
 # ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
 viz_model_data(example_params)
 
@@ -1368,21 +1368,25 @@ end
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
 # ╠═19c95a83-670c-4ad6-82a1-5a4b6809f1d4
-# ╠═981e2f83-4070-4a12-b090-9ce8ba1452c2
 # ╠═1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 # ╟─7278adb5-2da1-4ea1-aa38-d82c23510242
-# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
+# ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+# ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
+# ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
-# ╟─0d3b6020-a26d-444e-8601-be511c53c002
-# ╟─b6bfe2c4-e919-4a77-89bc-35d6d9f116ee
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╟─31864185-6eeb-4260-aa77-c3e94e467558
+# ╠═c6c39d74-4620-43df-8eb1-83c436924530
+# ╠═3c0f8b63-6276-488c-a376-d5c554a5555d
+# ╠═ddc23919-17a7-4c78-86f0-226e4d447dbe
+# ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
+# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
 # ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
-# ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 # ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
 # ╟─a7ecec81-8941-491b-a12e-c6e222276834
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
@@ -1440,8 +1444,6 @@ end
 # ╠═ce4bea8d-2da4-4832-9aa4-a348cbbe3812
 # ╠═91a58f53-0d7a-4026-8786-aae78d243c61
 # ╟─0f840879-7f31-4d31-b8b9-28c6ddac19a8
-# ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-# ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═643723ec-a1b5-4ae2-acb6-c87c6b7d63db
 # ╟─b25f5d75-9516-405b-89b6-ce685d2112ee
 # ╠═126df6ec-9074-4712-b038-9371ebdbc51d
