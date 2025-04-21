@@ -57,9 +57,7 @@ begin
 	#counts/gamma - multiply this by the value normalized to #of photons
 
 	# colors
-	colormap = ColorScheme(
-	        reverse([ColorSchemes.hot[i] for i in 0.0:0.01:1.0])
-	)
+	colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
 
 	# Locate files for which data needs to be extracted
 	dir_name = "sim_data"
@@ -247,6 +245,8 @@ end
 begin
 	num_models = length(data_files)
 	model_data = [import_data(data_files[i]) for i=1:num_models]
+
+	test_model = model_data[1]
 end
 
 # ╔═╡ 7278adb5-2da1-4ea1-aa38-d82c23510242
@@ -263,7 +263,7 @@ function viz_model_data!(ax, model::RadSim; z_slice::Int64=1)
 	)
 
 	#build colormap with black at around 0 counts
-	colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
+	#colormap = reverse(vcat([ColorSchemes.hot[i] for i in 0.0:0.02:1], ColorSchemes.batlow[0.0]))
 
 	# x and y values 
 	xs = ys = [val for val in 0:model.Δxy:model.Lxy]
@@ -299,7 +299,7 @@ function viz_model_data(model::RadSim; z_slice::Int64=1)
 end
 
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
-viz_model_data(model_data[1])
+viz_model_data(test_model)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -312,20 +312,96 @@ Generates a Poisson distribution based on position, source position and source s
 * `x₀::Vector{Float64}` - source location.
 * `I::Float64` - source strength in Bq.
 """
-function count_Poisson(x::Vector{Float64}, x₀, I; measure::Bool=false, ret_distr::Bool=false)
+function count_Poisson(x::Vector{Float64}, x₀, I)
 	distance = norm(x₀ .- x)
 	attenuation = attenuation_constant(x, x₀)
 	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
 	
-	if ret_distr
-		if isnan(λ) || λ < 0
-    		return Poisson(0.0)
-		end
+	if isnan(λ) || λ < 0
+		return Poisson(0.0)
+	else
+		return Poisson(λ)
 	end
 end
 
+# ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
+md"""
+## Analytical model visualization function
+"""
+
+# ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
+function viz_c_analytical!(ax, color_scale; res::Int=500, L::Float64=1000.0, x₀::Vector{Float64}=[251.0, 251.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
+	#colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
+
+	xs = collect(0.0:Δx:L)
+	counts = [mean(count_Poisson([x₁, x₂], x₀, I)) for x₁ in xs, x₂ in xs] # counts
+
+	hm = heatmap!(ax, xs, xs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
+
+	if ! isnothing(source)
+		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+	end
+
+	return hm, counts
+end
+
+# ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
+function viz_c_analytical(; res::Int=500, L::Float64=1000.0, x₀::Vector{Float64}=[251.0, 251.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e5)
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x", 
+	    ylabel="y"
+	)
+
+	scale = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	hm, _ = viz_c_analytical!(ax, scale, res=res, L=L, x₀=x₀, I=I, source=source, scale_max=scale_max)
+
+	colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+	
+	#tick_pos = scale_option_2.(colorbar_tick_values)
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
+end
+
+# ╔═╡ bc761684-699f-430b-bcb9-9b03410fa1d5
+mean(Poisson(5.0))
+
+# ╔═╡ 5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
+viz_c_analytical(scale_max = maximum(I * test_model.γ_matrix[1]))
+
 # ╔═╡ 31864185-6eeb-4260-aa77-c3e94e467558
 md"# Simulate Movement"
+
+# ╔═╡ 015b9f4d-09b8-49f3-bc03-2fd3b972e933
+md"## sample environment"
+
+# ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
+function sample_model(x::Vector{Float64}, model::RadSim; I::Float64=I, Δx::Float64=Δx, z_index::Int=1)
+	counts_I = I * model.γ_matrix[z_index]
+	@assert count([round(Int, x[i] / Δx) <= size(counts_I, i) && x[i] >= 0.0 for i=1:2]) == 2 "r coordinate values outside of domain"
+
+	#add background noise
+	λ_background = 1.5
+	noise = rand(Poisson(λ_background)) * rand([-1, 1])
+	
+	measurement = counts_I[round(Int, x[1] / Δx)+1, round(Int, x[2] / Δx)+1, z_index] + noise
+	measurement = max(measurement, 0)
+
+	return round(Int, measurement)
+end
+
+# ╔═╡ bfe17543-7b54-4f52-9679-f723adafdbdd
+md"## movement"
 
 # ╔═╡ c6c39d74-4620-43df-8eb1-83c436924530
 function get_Δ(direction::Symbol; Δx::Float64=Δx)
@@ -361,11 +437,7 @@ end
 begin
 	#Δx = 10.0 # m (step length for robot)
 	robot_path = [[0.0, 0.0]] # begin at origin
-
-
-
-
-
+	
 	move!(robot_path, :up, 5)
 	move!(robot_path, :right, 7)
 	# move!(robot_path, :up, 3)
@@ -373,7 +445,7 @@ begin
 	data = DataFrame(
 		"time" => 1:length(robot_path),
 		"x [m]" => robot_path,
-		"counts" => [count_Poisson(x, x₀, I, measure=true) for x in robot_path]
+		"counts" => [sample_model(x, test_model, I=I) for x in robot_path]
 	)
 end
 
@@ -386,55 +458,6 @@ begin
 	xs = range(0.0, L, length=res) # m
 mean(count_Poisson([10.0, 1.0], x₀, A))
 	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
-end
-
-# ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
-md"""
-## true count visualization function
-"""
-
-# ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-function viz_c_truth!(ax, color_scale; res::Int=500, L::Float64=1000.0, x₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e6)
-	colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
-
-	rs = range(0.0, L, length=res)
-	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
-
-	hm = heatmap!(ax, rs, rs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
-
-	if ! isnothing(source)
-		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
-	end
-
-	return hm, counts
-end
-
-# ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
-function viz_c_truth(; res::Int=500, L::Float64=50.0, x₀::Vector{Float64}=[25.0, 4.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=nothing, scale_max::Float64=1e5)
-	fig = Figure()
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="r₁", 
-	    ylabel="r₂"
-	)
-
-	scale_option_2 = ReversibleScale(
-	    x -> log10(x + 1),   # forward: avoids log(0)
-	    x -> 10^x - 1        # inverse
-	)
-
-	hm, _ = viz_c_truth!(ax, scale_option_2, res=res, L=L, x₀=x₀, I=I, source=source, scale_max=scale_max)
-
-	colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
-	colorbar_tick_values[1] = 0.0
-	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-	
-	tick_pos = scale_option_2.(colorbar_tick_values)
-
-	Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
-	
-	fig
 end
 
 # ╔═╡ f7e767a6-bf28-4771-9ddf-89a9383e3c14
@@ -1143,68 +1166,6 @@ function find_opt_choice(
 
 end
 
-# ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
-md"""
-# Simulation informed work
-
-"""
-
-# ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
-md"""
-# TODO
-
-* Implement function to import data from Dr. Yang's mesh modeling software.
-
-* Once data is imported for both simulations with and without obstructions. Create visualization to match the vizualizations provided by Dr. Yang.
-
-* Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
-"""
-
-# ╔═╡ 0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
-md"""
-## Filename
-"""
-
-# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
-
-
-# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
-example_data = extract_data(data_files[2])
-
-# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
-example_params = extract_parameters(example_data)
-
-# ╔═╡ 6e282112-783b-41f7-9055-99bb103cf5cc
-typeof(example_params["γ_matrix"])
-
-# ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
-md"""
-## visual
-"""
-
-# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
-viz_model_data(example_params)
-
-# ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
-md"""
-# sample model
-"""
-
-# ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
-function sample_model(x::Vector{Float64}, params::Dict; I::Float64=I, Δx::Float64=10.0, z_index::Int=1)
-	counts_I = I * params["γ_matrix"][:, :, 1]
-	@assert count([round(Int, x[i] / Δx) <= size(counts_I, i) && x[i] >= 0.0 for i=1:2]) == 2 "r coordinate values outside of domain"
-
-	#add background noise
-	λ_background = 1.5
-	noise = rand(Poisson(λ_background)) * rand([-1, 1])
-	
-	measurement = counts_I[round(Int, x[1] / Δx)+1, round(Int, x[2] / Δx)+1, z_index] + noise
-	measurement = max(measurement, 0)
-
-	return round(Int, measurement)
-end
-
 # ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
 """
 TODO:
@@ -1328,6 +1289,53 @@ end
 # ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
  viz_posterior(current_chain)
 
+# ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
+md"""
+# Simulation informed work
+
+"""
+
+# ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+md"""
+# TODO
+
+* Implement function to import data from Dr. Yang's mesh modeling software.
+
+* Once data is imported for both simulations with and without obstructions. Create visualization to match the vizualizations provided by Dr. Yang.
+
+* Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
+"""
+
+# ╔═╡ 0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
+md"""
+## Filename
+"""
+
+# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
+
+
+# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
+example_data = extract_data(data_files[2])
+
+# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
+example_params = extract_parameters(example_data)
+
+# ╔═╡ 6e282112-783b-41f7-9055-99bb103cf5cc
+typeof(example_params["γ_matrix"])
+
+# ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
+md"""
+## visual
+"""
+
+# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
+viz_model_data(example_params)
+
+# ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
+md"""
+# sample model
+"""
+
 # ╔═╡ 0d60828a-0fb4-404a-b411-010ef464f011
 sample_model([250.0, 250.0], example_params)
 
@@ -1375,16 +1383,21 @@ end
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
+# ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
+# ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
+# ╠═0175ede7-b2ab-4ffd-8da1-278120591027
+# ╠═bc761684-699f-430b-bcb9-9b03410fa1d5
+# ╠═5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
 # ╟─31864185-6eeb-4260-aa77-c3e94e467558
+# ╟─015b9f4d-09b8-49f3-bc03-2fd3b972e933
+# ╠═126df6ec-9074-4712-b038-9371ebdbc51d
+# ╟─bfe17543-7b54-4f52-9679-f723adafdbdd
 # ╠═c6c39d74-4620-43df-8eb1-83c436924530
 # ╠═3c0f8b63-6276-488c-a376-d5c554a5555d
 # ╠═ddc23919-17a7-4c78-86f0-226e4d447dbe
 # ╠═50e623c0-49f6-4bb5-9b15-c0632c3a88fd
 # ╠═325d565d-ef0e-434a-826a-adb68825f0fd
 # ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-# ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
-# ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
-# ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═f7e767a6-bf28-4771-9ddf-89a9383e3c14
 # ╟─b9aec8d8-688b-42bb-b3a4-7d04ee39e2ad
 # ╠═0d01df41-c0f3-4441-a9af-75d239820ba8
@@ -1446,7 +1459,6 @@ end
 # ╟─0f840879-7f31-4d31-b8b9-28c6ddac19a8
 # ╠═643723ec-a1b5-4ae2-acb6-c87c6b7d63db
 # ╟─b25f5d75-9516-405b-89b6-ce685d2112ee
-# ╠═126df6ec-9074-4712-b038-9371ebdbc51d
 # ╠═0d60828a-0fb4-404a-b411-010ef464f011
 # ╠═406a486a-9fb1-4d34-aee2-3e48fa5480a4
 # ╠═8d4cfc03-d13e-43cd-b9f4-b057f7173f21
