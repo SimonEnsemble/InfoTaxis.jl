@@ -498,7 +498,11 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
 	    xlabel="x₁", 
-	    ylabel="x₂"
+	    ylabel="x₂",
+		xlabelsize=40,
+		ylabelsize=40,
+		xticklabelsize=21,
+		yticklabelsize=21
 	)
 
 	if ! isnothing(rad_sim)
@@ -523,7 +527,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
-		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels))
+		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
 	
 	end
 
@@ -593,20 +597,6 @@ end
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
 
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-TODO("EVERYTHING BELOW HERE TO BE REWORKED")
-
-# ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
-md"# posterior
-
-infer the source location and strength.
-"
-
-# ╔═╡ c37e3d82-2320-4278-8b9b-24912a93fd96
-md"""
-## Viz Chain
-"""
-
 # ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
 function viz_chain_data!(ax, chain; show_source::Bool=true)
 
@@ -634,6 +624,20 @@ end
 
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
  viz_chain_data(chain)
+
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
+
+# ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
+md"# posterior
+
+infer the source location and strength.
+"
+
+# ╔═╡ c37e3d82-2320-4278-8b9b-24912a93fd96
+md"""
+## Viz Chain
+"""
 
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
