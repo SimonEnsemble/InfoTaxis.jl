@@ -49,7 +49,7 @@ begin
 	A = 0.0224 #m^2
 
 	# source parameters
-	x₀ = [25.0, 4.0]
+	x₀ = [250.0, 250.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
 	mCi = 0.050 #50 μCi
@@ -63,6 +63,9 @@ begin
 	dir_name = "sim_data"
 	data_dir = joinpath(pwd(), dir_name)
 	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
+
+	# Turing parameters
+	I_max = 1e11 #emmissions/s
 
 end
 
@@ -251,7 +254,7 @@ end
 
 # ╔═╡ 7278adb5-2da1-4ea1-aa38-d82c23510242
 md"""
-## Visualize - Imported Data
+## `Visualize` - Imported Data
 """
 
 # ╔═╡ 7211ea6e-6535-4e22-a2ef-a1994e81d22a
@@ -329,7 +332,7 @@ end
 
 # ╔═╡ 8ed5d321-3992-40db-8a2e-85abc3aaeea0
 md"""
-## Visualize - Analytical Model
+## `Visualize` - Analytical Model
 """
 
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
@@ -453,7 +456,7 @@ begin
 end
 
 # ╔═╡ de738002-3e80-4aab-bedb-f08533231ed7
-md"## Visualize - Movement and Measurement"
+md"## `Visualize` - Movement and Measurement"
 
 # ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
 function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6)
@@ -489,8 +492,8 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6)
 end
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Int=500, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1)	    
-	fig = Figure()
+function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0)	    
+	fig = Figure(size=(res, res))
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
@@ -503,6 +506,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 		counts_I = I * rad_sim.γ_matrix[z_slice]
 		source_coord = argmax(counts_I)
 		source = [coord * rad_sim.Δxy for coord in source_coord.I]
+		source[1] = source[1] - Δx
 		scale_max = maximum(counts_I)
 		L = rad_sim.Lxy
 		
@@ -537,31 +541,22 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 	if isnothing(rad_sim)
 		Colorbar(fig[1, 2], sc, label="counts")
 	end
+
+	if save_num > 0
+		save("$(save_num).png", fig)
+	end
+	
 	fig
 end
 
 # ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
-viz_data_collection(data, rad_sim=test_rad_sim)
+viz_data_collection(data, rad_sim=test_rad_sim, res=1000.0)
 
-# ╔═╡ 9c3d7806-cc87-4d63-ada2-9e1972c3743b
+# ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
+md"# Turing MCMC"
 
-
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-TODO("EVERYTHING BELOW HERE TO BE REWORKED")
-
-# ╔═╡ b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-begin
-	res = 500
-	xs = range(0.0, L, length=res) # m
-mean(count_Poisson([10.0, 1.0], x₀, A))
-	counts = [count_Poisson([x₁, x₂], x₀, I) for x₁ in xs, x₂ in xs] # counts
-end
-
-# ╔═╡ 1beef9ea-0344-4ebc-8fbf-64083e2cd592
-size(data)[1]
-
-# ╔═╡ 26a4354f-826e-43bb-9f52-eea54cc7e30f
-I_max = 1e11 #emmissions/s
+# ╔═╡ c6783f2e-d826-490f-93f5-3da7e2717a02
+md"## naive rad model"
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
 @model function rad_model(data)
@@ -578,22 +573,16 @@ I_max = 1e11 #emmissions/s
 		(loop thru observations)
 	=#
     for i in 1:nrow(data)
-        data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I, ret_distr=true)
+        data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I)
     end
 
     return nothing
 end
 
-# ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
-md"# posterior
-
-infer the source location and strength.
-"
-
 # ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 begin
+	#
 	prob_model = rad_model(data)
-			
 	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
 	chain = DataFrame(
@@ -601,80 +590,46 @@ begin
 	)
 end
 
-# ╔═╡ 96ce5328-f158-418c-96f6-1422b327b143
-mean(chain[:, "x₀[1]"])
+# ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
+md"## `Visualize` - Turing chain"
 
-# ╔═╡ 388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
-begin
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
 
-	
-	chain[1, :]
-end
+# ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
+md"# posterior
+
+infer the source location and strength.
+"
 
 # ╔═╡ c37e3d82-2320-4278-8b9b-24912a93fd96
 md"""
 ## Viz Chain
 """
 
-# ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-begin
-	function viz_chain_data(chain; save_num::Int64=0, data::Union{Nothing, DataFrame}=nothing)
-		fig = Figure()
-		ax = Axis(fig[1, 1])
+# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
+function viz_chain_data!(ax, chain; show_source::Bool=true)
 
 	scatter!(ax,
 		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
 	)
+	if show_source
 		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
 		axislegend(ax, location=:tr)
-
-		xlims!(-1, L+1)
-		ylims!(-1, L+1)
-
-
-
-		if ! isnothing(data)
-			viz_path!(ax, data)
-		end
-
-		if save_num > 0
-			save("$(save_num).png", fig)
-		end
-		
-		return fig
 	end
 end
 
-# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
-begin
-	function viz_chain_data(chain, params::Dict, counts_I::Matrix{Float64}; save_num::Int64=0, data::Union{Nothing, DataFrame}=nothing, L::Float64=50.0, show_source::Bool=true)
-		fig = Figure()
-		ax = Axis(fig[1, 1])
+# ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
+function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true)
+	fig = Figure(size = (res, res))
+	ax = Axis(fig[1, 1])
 
-		xlims!(-1, L+1)
-		ylims!(-1, L+1)
+	viz_chain_data!(ax, chain, show_source=show_source)
 
-		viz_model_data!(ax, params, counts_I)
-
-	scatter!(ax,
-		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
-	)
-		if show_source
-			scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
-			axislegend(ax, location=:tr)
-		end
-
-
-		if ! isnothing(data)
-			viz_path!(ax, data)
-		end
-
-		if save_num > 0
-			save("$(save_num).png", fig)
-		end
-		
-		return fig
-	end
+	xlims!(-1, L+1)
+	ylims!(-1, L+1)
+	
+	return fig
 end
 
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
@@ -1318,9 +1273,6 @@ example_data = extract_data(data_files[2])
 # ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
 example_params = extract_parameters(example_data)
 
-# ╔═╡ 6e282112-783b-41f7-9055-99bb103cf5cc
-typeof(example_params["γ_matrix"])
-
 # ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
 md"""
 ## visual
@@ -1399,21 +1351,17 @@ end
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
 # ╠═9fbe820c-7066-40b5-9617-44ae0913928e
-# ╠═9c3d7806-cc87-4d63-ada2-9e1972c3743b
-# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
-# ╠═b217f19a-cc8a-4cb3-aba7-fbb70f5df341
-# ╠═1beef9ea-0344-4ebc-8fbf-64083e2cd592
-# ╠═26a4354f-826e-43bb-9f52-eea54cc7e30f
+# ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
+# ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
-# ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
-# ╠═96ce5328-f158-418c-96f6-1422b327b143
-# ╠═388e2ec0-28c1-45d0-9ba5-c6d5f6a252f3
-# ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
-# ╠═6e282112-783b-41f7-9055-99bb103cf5cc
-# ╟─c37e3d82-2320-4278-8b9b-24912a93fd96
+# ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
+# ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
+# ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
+# ╟─c37e3d82-2320-4278-8b9b-24912a93fd96
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 # ╠═a8c1cf59-2afa-4e50-9933-58b716b57808
 # ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
