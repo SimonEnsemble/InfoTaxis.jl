@@ -49,44 +49,47 @@ function some_target(x)
 	return  0.5 / (1 + x^2)
 end
 
+# ╔═╡ 517aa4e2-137d-4d2d-8f17-1b98a8aa81e7
+md"""
+
+The initial guess (initial_x) should be sampled from the prior
+"""
+
 # ╔═╡ d8ef1b09-ebfe-4142-b3b4-39b9edfdb38a
 function run_mcmc_trace(target_prob, initial_x::Float64, n_steps::Int; proposal_std::Float64=0.5)
     x = initial_x #starting point (init state of chain)
-    trace = Float64[] #sample storage
-    accepted = BitVector() #?
+    trace = zeros(n_steps) #sample storage
+    accepted = Vector{Bool}(undef, n_steps) #
     
-    for _ in 1:n_steps
+    for i in 1:n_steps
         x_prop = x + randn() * proposal_std 
         α = target_prob(x_prop) / target_prob(x)
 		if rand() < α
 		    x = x_prop
-			push!(accepted, true)
+			accepted[i] = true
 		else
-			push!(accepted, false)
+			accepted[i] = false
 		end
-        push!(trace, x)
+        trace[i] = x
     end
 
     return trace, accepted
 end
 
-# ╔═╡ e378fa57-c68f-4fd0-b031-981649295a6f
-log(rand())
-
 # ╔═╡ a30d593e-5ba3-45c6-9ce2-d9f67903a485
 #gen samples
-samples, _= run_mcmc_trace(some_target, 0.0, 10000, proposal_std=1.0)
+samples, _= run_mcmc_trace(some_target, 0.0, 1000000, proposal_std=0.1)
 
 # ╔═╡ 2d466e44-d3ab-491a-92d6-c11d3cb660ca
 begin
 	local fig = Figure(size=(800, 400))
 	local ax = Axis(fig[1, 1]; xlabel="x", ylabel="Density", title="Metropolis-Hastings Sampling")
 
-	hist!(ax, samples; bins=50, normalization=:pdf, color=:gray80)
+	density!(ax, samples[1000:end])#; bins=50, normalization=:pdf, color=:gray80)
 
 
 	local xs = LinRange(-4, 4, 300)
-	lines!(ax, xs, pdf.(Normal(0, 1), xs); linewidth=2, label="True PDF")
+	lines!(ax, xs, pdf.(Cauchy(0, 1), xs); linewidth=2, label="True PDF")
 
 	axislegend(ax)
 
@@ -102,10 +105,7 @@ begin
 end
 
 # ╔═╡ ab11cf92-a81f-4ee7-9dc4-b13922bec273
-#@bind step PlutoUI.Slider(1:length(trace); show_value=true)
-
-# ╔═╡ 3c5cd5ff-9efc-4444-9738-15ce5cb82c9a
-@bind step Clock()
+@bind step PlutoUI.Slider(1:length(trace); show_value=true)
 
 # ╔═╡ 12b931b8-7818-48bb-a1ab-4fbd4e44cb43
 begin
@@ -122,7 +122,7 @@ begin
 	
 	# Plot true PDF of the target
 	xs = LinRange(-4, 4, 300)
-	lines!(ax, xs, pdf.(Normal(0, 1), xs); linewidth=2, color=:black, label="True PDF")
+	lines!(ax, xs, pdf.(Cauchy(0, 1), xs); linewidth=2, color=:black, label="True PDF")
 
 	ylims!(0.0, 1.0)
 	xlims!(-15, 15)
@@ -130,6 +130,12 @@ begin
 	axislegend(ax)
 	fig
 end
+
+# ╔═╡ 3c5cd5ff-9efc-4444-9738-15ce5cb82c9a
+# ╠═╡ disabled = true
+#=╠═╡
+#@bind step Clock()
+  ╠═╡ =#
 
 # ╔═╡ 70f40d28-c9bf-4bb4-a2bf-64e249dcfbcd
 step
@@ -162,12 +168,12 @@ end
 # ╟─44233307-a3df-4bc8-a1cd-e99b61999950
 # ╟─24dcb6f1-25cc-4175-8d9f-264cebe86008
 # ╠═aa1503f6-ea8d-43f8-96a4-e53ab51ada11
+# ╠═517aa4e2-137d-4d2d-8f17-1b98a8aa81e7
 # ╠═d8ef1b09-ebfe-4142-b3b4-39b9edfdb38a
-# ╠═e378fa57-c68f-4fd0-b031-981649295a6f
 # ╠═a30d593e-5ba3-45c6-9ce2-d9f67903a485
 # ╠═2d466e44-d3ab-491a-92d6-c11d3cb660ca
 # ╠═f2f3b4e5-aac4-491b-a47b-3d1fadb08b33
-# ╟─12b931b8-7818-48bb-a1ab-4fbd4e44cb43
+# ╠═12b931b8-7818-48bb-a1ab-4fbd4e44cb43
 # ╠═ab11cf92-a81f-4ee7-9dc4-b13922bec273
 # ╠═3c5cd5ff-9efc-4444-9738-15ce5cb82c9a
 # ╠═70f40d28-c9bf-4bb4-a2bf-64e249dcfbcd

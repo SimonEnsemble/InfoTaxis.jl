@@ -283,8 +283,8 @@ function viz_model_data(rad_sim::RadSim; z_slice::Int64=1)
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="x", 
-	    ylabel="y"
+	    xlabel="x₁", 
+	    ylabel="x₂"
 	)
 
 	counts_I = I * rad_sim.γ_matrix[z_slice]
@@ -625,6 +625,77 @@ end
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
  viz_chain_data(chain)
 
+# ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
+md"## `Visualize` - Turing chain heatmap"
+
+# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
+function chain_to_P(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+2) .- Δx/2
+	hist_x₀ = fit(
+		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
+	)
+	return hist_x₀.weights / sum(hist_x₀.weights)
+end
+
+# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
+function x_to_bin(x::Float64; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
+	
+	for b = 1:length(x_edges)-1
+		if x < x_edges[b+1]
+			return b
+		end
+	end
+end
+
+# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
+function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
+	n = length(x_edges)
+	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
+end
+
+# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+P = chain_to_P(chain)
+
+# ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
+x_bin_centers = edges_to_centers()
+
+# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+heatmap(x_bin_centers, x_bin_centers, P)
+
+# ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
+md"## `Visualize` - Posterior"
+
+# ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
+function viz_posterior(chain::DataFrame)
+	fig = Figure()
+
+	# dist'n of I
+	ax_t = Axis(fig[1, 1], xlabel="I [g/L]", ylabel="density", xscale=log10)
+	hist!(ax_t, chain[:, "I"], bins=[10.0^e for e in range(0, log10(I_max), length=50)])
+	#xscale!(ax_t, :log10)
+
+	# dist'n of x₀
+	ax_b = Axis(
+		fig[2, 1], xlabel="x₁ [m]", ylabel="x₂ [m]", aspect=DataAspect()
+	)
+	xlims!(ax_b, 0, L)
+	ylims!(ax_b, 0, L)
+	hb = hexbin!(
+		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
+	)
+	Colorbar(fig[2, 2], hb, label="count")
+
+	# show ground-truth
+	vlines!(ax_t, I, color="red", linestyle=:dash)
+	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
+	fig
+end
+
+# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
+viz_posterior(chain)
+
 # ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
 TODO("EVERYTHING BELOW HERE TO BE REWORKED")
 
@@ -641,87 +712,6 @@ md"""
 
 # ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
 md"### create empirical dist'n for source location"
-
-# ╔═╡ a8c1cf59-2afa-4e50-9933-58b716b57808
-x_edges = collect(0.0:Δx:L+2) .- Δx/2
-
-# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
-function chain_to_P(chain::DataFrame, x_edges::Vector{Float64}=x_edges)
-	hist_x₀ = fit(
-		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
-	)
-	return hist_x₀.weights / sum(hist_x₀.weights)
-end
-
-# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-P = chain_to_P(chain)
-
-# ╔═╡ 8d3bb820-7d88-431b-a66b-cc629a9970c9
-sum(P)
-
-# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
-function r_to_bin(r_edges::Vector{Float64}, r::Float64)
-	for b = 1:length(r_edges)-1
-		if r < r_edges[b+1]
-			return b
-		end
-	end
-end
-
-# ╔═╡ cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
-function bin_to_r(r_edges::Vector{Float64}, i::Int)
-end
-
-# ╔═╡ 544fcbc4-c222-4876-82fe-d5c92cb18671
-@test x_to_bin(x_edges, 0.5) == 1
-
-# ╔═╡ 8cfe65af-b0f8-4c6c-8cbe-86e80e8c4e58
-@test x_to_bin(x_edges, 1.4) == 2
-
-# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
-# from edges compute centers of bins.
-function edges_to_centers(edges)
-	n = length(edges)
-	return [(edges[i] + edges[i+1]) / 2 for i = 1:n-1]
-end
-
-# ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
-x_bin_centers = edges_to_centers(x_edges)
-
-# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
-
-# ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
-function viz_posterior(chain::DataFrame)
-	fig = Figure()
-
-	# dist'n of I
-	ax_t = Axis(fig[1, 1], xlabel="I [g/L]", ylabel="density", xscale=log10)
-	hist!(ax_t, chain[:, "I"], bins=[10.0^e for e in range(0, log10(I_max), length=50)])
-	#xscale!(ax_t, :log10)
-
-	# dist'n of x₀
-	ax_b = Axis(
-		fig[2, 1], xlabel="r₁ [m]", ylabel="r₂ [m]", aspect=DataAspect()
-	)
-	xlims!(ax_b, 0, L)
-	ylims!(ax_b, 0, L)
-	hb = hexbin!(
-		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
-	)
-	Colorbar(fig[2, 2], hb, label="count")
-
-	# show ground-truth
-	vlines!(ax_t, I, color="red", linestyle=:dash)
-	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
-	fig
-end
-
-# ╔═╡ 4ffaf881-d075-42cc-80d2-d75f6e92d60f
-[10.0^e for e in range(5, log10(I_max), length=10)]
-
-# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
-viz_posterior(chain)
 
 # ╔═╡ 06ecc454-9cd5-432d-bc1c-b269ee3f0794
 chain
@@ -1363,24 +1353,20 @@ end
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
 # ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+# ╟─65d603f4-4ef6-4dff-92c1-d6eef535e67e
+# ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
+# ╠═50830491-6285-4915-b59a-fa5bb7298e51
+# ╠═065befd1-f652-4925-b1b2-4e847a3884dd
+# ╠═e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+# ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
+# ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+# ╟─aa72cf61-839d-4707-95c8-0a9230e77d56
+# ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
+# ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
 # ╠═325d565d-ef0e-434a-826a-adb68825f0fd
 # ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
 # ╟─c37e3d82-2320-4278-8b9b-24912a93fd96
 # ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
-# ╠═a8c1cf59-2afa-4e50-9933-58b716b57808
-# ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
-# ╠═e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-# ╠═8d3bb820-7d88-431b-a66b-cc629a9970c9
-# ╠═50830491-6285-4915-b59a-fa5bb7298e51
-# ╠═cfd36793-a14d-4c59-adc3-e3fbc7f25cc6
-# ╠═544fcbc4-c222-4876-82fe-d5c92cb18671
-# ╠═8cfe65af-b0f8-4c6c-8cbe-86e80e8c4e58
-# ╠═065befd1-f652-4925-b1b2-4e847a3884dd
-# ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
-# ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-# ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
-# ╠═4ffaf881-d075-42cc-80d2-d75f6e92d60f
-# ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
 # ╠═06ecc454-9cd5-432d-bc1c-b269ee3f0794
 # ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
 # ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
