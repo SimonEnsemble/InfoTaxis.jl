@@ -963,7 +963,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
@@ -988,7 +988,7 @@ end
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 100, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
 viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed)
