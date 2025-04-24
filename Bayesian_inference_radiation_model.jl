@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.5
+# v0.20.6
 
 using Markdown
 using InteractiveUtils
@@ -250,6 +250,7 @@ begin
 	rad_sim_data = [import_data(data_files[i]) for i=1:num_sims]
 
 	test_rad_sim = rad_sim_data[1]
+	test_rad_sim_obstructed = rad_sim_data[2]
 end
 
 # ╔═╡ 7278adb5-2da1-4ea1-aa38-d82c23510242
@@ -303,6 +304,9 @@ end
 
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 viz_model_data(test_rad_sim)
+
+# ╔═╡ bbeed200-3315-4546-9540-16864843f178
+viz_model_data(test_rad_sim_obstructed)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -627,7 +631,7 @@ function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bo
 	viz_chain_data!(ax, chain, show_source=show_source)
 
 	if !isnothing(path_data)
-		sc = viz_path!(ax, path_data, scale_max=scale_max)
+		sc = viz_path!(ax, path_data)
 		Colorbar(fig[1, 2], sc, label="counts")
 	end
 
@@ -914,7 +918,7 @@ function simulate(
 		end
 		#P = chain_to_P(model_chain)
 
-		if norm([robot_path[end][i] - x₀[i] for i=1:2]) < Δx
+		if norm([robot_path[end][i] - x₀[i] for i=1:2]) <= (2 * Δx^2)^(0.5)
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
 		end
@@ -955,42 +959,54 @@ end
 # ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
 md"## `Example Sim`"
 
+# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
+start = [70, 70]
+
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2)
+simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+
+# ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
+#test_rad_sim_obstructed
 
 # ╔═╡ 9a1fa610-054b-4b05-a32b-610f72329166
 viz_data_collection(simulation_data, rad_sim=test_rad_sim)
 
-# ╔═╡ a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
-
-
 # ╔═╡ f5ea3486-4930-42c2-af1b-d4a17053976a
-
-
-# ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
-
-
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-TODO("EVERYTHING BELOW HERE TO BE REWORKED")
-
-# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-#simulation_data, simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2)
-
-# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-#viz_data(simulation_data, source=x₀, incl_model=true)
-
-# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
 @bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 
-# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
+# ╔═╡ a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
 begin
 	#@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 	current_chain = simulation_chains[chain_val]
-	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
+	 viz_chain_data(current_chain, path_data=simulation_data[1:chain_val, :])
 end
 
-# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
+# ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
  viz_posterior(current_chain)
+
+# ╔═╡ 2f7a3d49-1864-4113-b173-ee7e8c9e62a4
+md"## `Example Sim` - with obstructions"
+
+# ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 100, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+
+# ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
+viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed)
+
+# ╔═╡ ea505dc1-a18f-408f-bff8-3b488c49fdb0
+@bind chain_val_obst PlutoUI.Slider(1:size(simulation_data_obst, 1)-1, show_value=true)
+
+# ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
+begin
+	current_chain_obst = simulation_chains_obst[chain_val_obst]
+	viz_chain_data(current_chain_obst, path_data=simulation_data_obst[1:chain_val_obst, :])
+end
+
+# ╔═╡ d14fc2b4-ad11-4506-a580-06bfefede40b
+ viz_posterior(current_chain_obst)
+
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
 
 # ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
 md"""
@@ -1014,41 +1030,19 @@ md"""
 ## Filename
 """
 
-# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
-
-
-# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
-example_data = extract_data(data_files[2])
-
-# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
-example_params = extract_parameters(example_data)
-
 # ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
 md"""
 ## visual
 """
-
-# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
-viz_model_data(example_params)
 
 # ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
 md"""
 # sample model
 """
 
-# ╔═╡ 0d60828a-0fb4-404a-b411-010ef464f011
-sample_model([250.0, 250.0], example_params)
-
-# ╔═╡ 8d4cfc03-d13e-43cd-b9f4-b057f7173f21
-model_simulation_data, model_simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2, model_params=example_params, Δx=example_params["Δx_y"])
-
-# ╔═╡ b14d282d-de10-4712-9f0f-2ca2b3b0ca3b
-example_params
-
-# ╔═╡ 10ed85de-223a-40a1-99bb-f2e6c613a3f8
-@bind model_chain_val PlutoUI.Slider(1:size(model_simulation_data, 1)-1, show_value=true)
-
 # ╔═╡ 1e8b7eaa-004e-4c40-82ca-d63d4079360b
+# ╠═╡ disabled = true
+#=╠═╡
 begin
 	#@bind model_chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 	counts_I = I * example_params["γ_matrix"][:, :, 1]
@@ -1057,6 +1051,7 @@ begin
 	
 	 viz_chain_data(current_model_chain, example_params, counts_I, data=model_simulation_data[1:model_chain_val, :], L=L_model, show_source=false)
 end
+  ╠═╡ =#
 
 # ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
 md"# Infotaxis"
@@ -1256,6 +1251,7 @@ end
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
+# ╠═bbeed200-3315-4546-9540-16864843f178
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
@@ -1303,31 +1299,26 @@ end
 # ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
 # ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
 # ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
+# ╠═ae92f6ae-298d-446d-b379-ee2190ef1915
 # ╠═f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
+# ╠═22a012c1-4169-4959-af47-9d4b01691ae9
 # ╠═9a1fa610-054b-4b05-a32b-610f72329166
 # ╠═a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
 # ╠═f5ea3486-4930-42c2-af1b-d4a17053976a
 # ╠═4a0c8aab-2424-441d-a8c7-9f8076ecbae7
+# ╟─2f7a3d49-1864-4113-b173-ee7e8c9e62a4
+# ╠═ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
+# ╠═ac2dd9e7-0547-4cda-acf5-845d12d87626
+# ╠═3ff17eaf-974d-4bf0-b75f-d3ef473730bf
+# ╠═ea505dc1-a18f-408f-bff8-3b488c49fdb0
+# ╠═d14fc2b4-ad11-4506-a580-06bfefede40b
 # ╠═325d565d-ef0e-434a-826a-adb68825f0fd
-# ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
-# ╠═cf110412-747d-44fa-8ab9-991b863eecb3
-# ╠═962d552d-9cb2-4a69-9338-5995f7788b96
-# ╠═474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
-# ╠═139eb9e5-d126-4202-b621-47c38ce1ab93
 # ╟─d296d31a-d63e-4650-920e-6ab870f4b617
-# ╟─e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+# ╠═e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
 # ╟─0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
-# ╠═2b3183d1-f4ca-4549-a43c-b97958308238
-# ╠═ce4bea8d-2da4-4832-9aa4-a348cbbe3812
-# ╠═91a58f53-0d7a-4026-8786-aae78d243c61
 # ╟─0f840879-7f31-4d31-b8b9-28c6ddac19a8
-# ╠═643723ec-a1b5-4ae2-acb6-c87c6b7d63db
 # ╟─b25f5d75-9516-405b-89b6-ce685d2112ee
-# ╠═0d60828a-0fb4-404a-b411-010ef464f011
-# ╠═8d4cfc03-d13e-43cd-b9f4-b057f7173f21
 # ╠═1e8b7eaa-004e-4c40-82ca-d63d4079360b
-# ╠═b14d282d-de10-4712-9f0f-2ca2b3b0ca3b
-# ╠═10ed85de-223a-40a1-99bb-f2e6c613a3f8
 # ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
 # ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
 # ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
