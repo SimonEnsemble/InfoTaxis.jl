@@ -304,9 +304,6 @@ end
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 viz_model_data(test_rad_sim)
 
-# ╔═╡ 7ed3ac02-2915-4995-8ff4-ea781b283f7f
-argmax(test_rad_sim.γ_matrix[1])
-
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
 
@@ -357,8 +354,8 @@ function viz_c_analytical(; res::Int=500, L::Float64=1000.0, x₀::Vector{Float6
 	ax  = Axis(
 	    fig[1, 1], 
 	    aspect=DataAspect(), 
-	    xlabel="x", 
-	    ylabel="y"
+	    xlabel="x₁", 
+	    ylabel="x₂"
 	)
 
 	scale = ReversibleScale(
@@ -391,6 +388,16 @@ md"# Simulate Movement"
 # ╔═╡ 015b9f4d-09b8-49f3-bc03-2fd3b972e933
 md"## sample environment"
 
+# ╔═╡ bfe17543-7b54-4f52-9679-f723adafdbdd
+md"## movement"
+
+# ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
+function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
+    x₁ = Int(floor((pos[1]) / Δx))+1
+    x₂ = Int(floor((pos[2]) / Δx))+1
+    return (x₁, x₂)
+end
+
 # ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
 function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Float64=Δx, z_index::Int=1)
 	counts_I = I * rad_sim.γ_matrix[z_index]
@@ -399,15 +406,14 @@ function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Fl
 	#add background noise
 	λ_background = 1.5
 	noise = rand(Poisson(λ_background)) * rand([-1, 1])
-	
-	measurement = counts_I[round(Int, x[1] / Δx)+1, round(Int, x[2] / Δx)+1, z_index] + noise
+
+	#get index from position
+	indicies = pos_to_index(x)
+	measurement = counts_I[indicies[1] , indicies[2] , z_index] + noise
 	measurement = max(measurement, 0)
 
 	return round(Int, measurement)
 end
-
-# ╔═╡ bfe17543-7b54-4f52-9679-f723adafdbdd
-md"## movement"
 
 # ╔═╡ c6c39d74-4620-43df-8eb1-83c436924530
 function get_Δ(direction::Symbol; Δx::Float64=Δx)
@@ -459,19 +465,21 @@ end
 md"## `Visualize` - Movement and Measurement"
 
 # ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
-function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6)
+function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6, show_lines::Bool=false)
 
 	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(data)]
-	if length(positions) > 1
-	    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
-	    line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
-	    line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
-	
-	    for i in 1:length(positions)-1
-	        r1, y1 = positions[i]
-	        r2, y2 = positions[i+1]
-	        lines!(ax, [r1, r2], [y1, y2], color=line_colors[i], linewidth=line_widths[i], joinstyle = :round)
-	    end
+	if show_lines
+		if length(positions) > 1
+		    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
+		    line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
+		    line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
+		
+		    for i in 1:length(positions)-1
+		        r1, y1 = positions[i]
+		        r2, y2 = positions[i+1]
+		        lines!(ax, [r1, r2], [y1, y2], color=line_colors[i], linewidth=line_widths[i], joinstyle = :round)
+		    end
+		end
 	end
 
 	scale = ReversibleScale(
@@ -489,6 +497,8 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6)
 			strokewidth=2,
 			markersize=11
 		)
+
+	return sc
 end
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
@@ -531,7 +541,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 	
 	end
 
-	viz_path!(ax, path_data, scale_max=scale_max)
+	sc = viz_path!(ax, path_data, scale_max=scale_max)
 
 	if ! isnothing(x₀) || ! isnothing(rad_sim)
 		scatter!([source[1]], [source[2]], color="black", marker=:xcross, markersize=25, label="source", strokewidth=1)
@@ -554,7 +564,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 end
 
 # ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
-viz_data_collection(data, rad_sim=test_rad_sim, res=1000.0)
+viz_data_collection(data, rad_sim=test_rad_sim)
 
 # ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 md"# Turing MCMC"
@@ -610,11 +620,16 @@ function viz_chain_data!(ax, chain; show_source::Bool=true)
 end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true)
+function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing)
 	fig = Figure(size = (res, res))
 	ax = Axis(fig[1, 1])
 
 	viz_chain_data!(ax, chain, show_source=show_source)
+
+	if !isnothing(path_data)
+		sc = viz_path!(ax, path_data, scale_max=scale_max)
+		Colorbar(fig[1, 2], sc, label="counts")
+	end
 
 	xlims!(-1, L+1)
 	ylims!(-1, L+1)
@@ -696,32 +711,6 @@ end
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
 
-# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
-TODO("EVERYTHING BELOW HERE TO BE REWORKED")
-
-# ╔═╡ c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
-md"# posterior
-
-infer the source location and strength.
-"
-
-# ╔═╡ c37e3d82-2320-4278-8b9b-24912a93fd96
-md"""
-## Viz Chain
-"""
-
-# ╔═╡ 10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
-md"### create empirical dist'n for source location"
-
-# ╔═╡ 06ecc454-9cd5-432d-bc1c-b269ee3f0794
-chain
-
-# ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
-md"# infotaxis & Thompson sampling"
-
-# ╔═╡ 14b34270-b47f-4f22-9ba4-db294f2c029c
-md"## entropy calcs"
-
 # ╔═╡ baa90d24-6ab4-4ae8-9565-c2302428e9e7
 """
 entropy of belief state H(s)
@@ -730,16 +719,6 @@ entropy of belief state H(s)
 entropy(P::Matrix{Float64}) = sum(
 	[-P[i] * log2(P[i]) for i in eachindex(P) if P[i] > 0.0]
 )
-
-# ╔═╡ f04d1521-7fb4-4e48-b066-1f56805d18de
-md"## simulate"
-
-# ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
-function pos_to_index(pos::Vector{Float64}; Δx::Float64=2.0)
-    x₁ = Int(floor((pos[1] + 1) / Δx)) + 1
-    x₂ = Int(floor((pos[2] + 1) / Δx)) + 1
-    return (x₁, x₂)
-end
 
 # ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
 """
@@ -754,6 +733,333 @@ function miss_source(r::Vector{Float64}, pr_field::Matrix{Float64})
 	pr_field .= pr_field/sum(pr_field)
 	return pr_field
 end
+
+# ╔═╡ bb94ce77-d48c-4f6d-b282-96197d6e7b6b
+md"# Thompson sampling"
+
+# ╔═╡ f55544f3-413d-44c5-8e81-37a5f017b460
+md"## Thompson sampling"
+
+# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+"""
+Given the robot path, returns a tuple of optional directions the robot could travel in next.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+"""
+function get_next_steps(
+	robot_path::Vector{Vector{Float64}}, 
+	L::Float64; 
+	Δx::Float64=2.0,
+	allow_overlap::Bool=false
+)
+	current_pos = robot_path[end]
+
+	directions = Dict(
+        :up    => [0.0, Δx],
+        :down  => [0.0, -Δx],
+        :left  => [-Δx, 0.0],
+        :right => [Δx, 0.0]
+    )
+
+	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
+	if length(robot_path) > 1
+		visited = Set((pos[1], pos[2]) for pos in [robot_path[end-1]])
+	else
+		visited = ()
+	end
+
+	if allow_overlap
+		valid_directions = Tuple(
+	        dir for (dir, delta) in directions
+	        if let new_pos = current_pos .+ delta
+	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
+	            in_bounds
+	        end
+	    )
+	else
+		valid_directions = Tuple(
+	        dir for (dir, delta) in directions
+	        if let new_pos = current_pos .+ delta
+	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
+	            not_visited = (new_pos[1], new_pos[2]) ∉ visited
+	            in_bounds && not_visited
+	        end
+	    )
+	end
+
+	return valid_directions
+
+end
+
+# ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
+"""
+Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
+"""
+function thompson_sampling(
+	robot_path::Vector{Vector{Float64}}, 
+	chain::DataFrame;
+	L::Float64=50.0,
+	Δx::Float64=2.0,
+	allow_overlap::Bool=false)
+
+	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
+
+	if length(direction_options) < 1 && allow_overlap == true
+		@warn "found no viable direction options with overlap allowed, returning nothing"
+		return :nothing
+	end
+
+	best_direction = :nothing
+	greedy_dist = Inf
+
+	#randomly sample from the chain
+	rand_θ = chain[rand(1:nrow(chain)), :]
+	loc = robot_path[end]
+
+	#loop through direction options and pick the one leading closest to sample
+	for direction in direction_options
+		new_loc = loc .+ get_Δ(direction)
+		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
+		if dist < greedy_dist
+			greedy_dist = dist
+			best_direction = direction
+		end
+	end
+
+	if best_direction == :nothing && allow_overlap == false
+		@warn "best direction == nothing, switching to allow overlap"
+		return thompson_sampling(
+			robot_path, 
+			chain,
+			L=L,
+			Δx=Δx,
+			allow_overlap=true)
+	end
+	
+	return best_direction
+
+end
+
+# ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
+md"## simulate movement"
+
+# ╔═╡ 52296a3f-9fad-46a8-9894-c84eb5cc86d7
+"""
+Runs a simulation by placing a robot, calculating a posterior, sampling the posterior using Thompson sampling, then making a single step and repeating `num_steps` times.
+
+* `rad_sim::RadSim` - the radiation simulation RadSim to sample from.
+* `num_steps::Int64` - set the max number of steps to simulate movement.
+* `robot_start::Vector{Int64}=[0, 0]` - the grid indicies for the robot to start the simulation.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
+* `I::Float64=I` - source strength.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=2.0` - step size of the robot.
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
+* `x₀::Vector{Float64}=[250.0, 250.0]` - source location, this tells the simulation to stop if the current location is within Δx of x₀.
+* `save_chains::Bool=false` - set to true to save the MCMC simulation chain data for every step.
+* `z_index::Int=1` - sets the current z index of the γ_matrx, for now keep at 1.
+"""
+function simulate(
+	rad_sim::RadSim,
+	num_steps::Int64; 
+	robot_start::Vector{Int64}=[0, 0], 
+	num_mcmc_samples::Int64=2000,
+	num_mcmc_chains::Int64=1,
+	I::Float64=I,
+	L::Float64=L,
+	Δx::Float64=Δx,
+	allow_overlap::Bool=false,
+	x₀::Vector{Float64}=[250.0, 250.0],
+	save_chains::Bool=false,
+	z_index::Int=1
+)
+	
+	sim_chains = Dict()
+
+	#times = 1:num_steps
+	#xs = robot_start
+	x_start = [robot_start[i] * Δx for i=1:2]
+	c_start = sample_model(x_start, rad_sim, I=I, Δx=Δx, z_index=z_index)
+	
+
+	sim_data = DataFrame(
+		"time" => [1.0],
+		"x [m]" => [x_start],
+		"counts" => [c_start]
+	)
+
+	robot_path = [x_start]
+
+	for iter = 1:num_steps
+		model = rad_model(sim_data)
+		model_chain = DataFrame(
+			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+		)
+
+		if save_chains
+			sim_chains[iter] = model_chain
+		end
+		#P = chain_to_P(model_chain)
+
+		if norm([robot_path[end][i] - x₀[i] for i=1:2]) < Δx
+			@info "Source found at step $(iter), robot at location $(robot_path[end])"
+			break
+		end
+
+		# use Thompson sampling to find the best direction
+		best_direction = thompson_sampling(
+			robot_path, 
+			model_chain,
+			L=L,
+			Δx=Δx,
+			allow_overlap=allow_overlap
+		)
+
+		if best_direction == :nothing
+			@warn "iteration $(iter) found best_direction to be :nothing"
+			return sim_data
+		end
+
+		# move robot
+		move!(robot_path, best_direction, Δx=Δx)
+		c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
+		push!(
+			sim_data,
+			Dict("time" => iter+1.0, 
+			"x [m]" => robot_path[end], 
+			"counts" => c_measurement
+			)
+		)
+	end
+
+	if save_chains
+		return sim_data, sim_chains
+	else
+		return sim_data
+	end
+end
+
+# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
+md"## `Example Sim`"
+
+# ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
+simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2)
+
+# ╔═╡ 9a1fa610-054b-4b05-a32b-610f72329166
+viz_data_collection(simulation_data, rad_sim=test_rad_sim)
+
+# ╔═╡ a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
+
+
+# ╔═╡ f5ea3486-4930-42c2-af1b-d4a17053976a
+
+
+# ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
+
+
+# ╔═╡ 325d565d-ef0e-434a-826a-adb68825f0fd
+TODO("EVERYTHING BELOW HERE TO BE REWORKED")
+
+# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
+#simulation_data, simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2)
+
+# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
+#viz_data(simulation_data, source=x₀, incl_model=true)
+
+# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
+@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
+
+# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
+begin
+	#@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
+	current_chain = simulation_chains[chain_val]
+	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
+end
+
+# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
+ viz_posterior(current_chain)
+
+# ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
+md"""
+# Simulation informed work
+
+"""
+
+# ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
+md"""
+# TODO
+
+* Implement function to import data from Dr. Yang's mesh modeling software.
+
+* Once data is imported for both simulations with and without obstructions. Create visualization to match the vizualizations provided by Dr. Yang.
+
+* Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
+"""
+
+# ╔═╡ 0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
+md"""
+## Filename
+"""
+
+# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
+
+
+# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
+example_data = extract_data(data_files[2])
+
+# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
+example_params = extract_parameters(example_data)
+
+# ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
+md"""
+## visual
+"""
+
+# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
+viz_model_data(example_params)
+
+# ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
+md"""
+# sample model
+"""
+
+# ╔═╡ 0d60828a-0fb4-404a-b411-010ef464f011
+sample_model([250.0, 250.0], example_params)
+
+# ╔═╡ 8d4cfc03-d13e-43cd-b9f4-b057f7173f21
+model_simulation_data, model_simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2, model_params=example_params, Δx=example_params["Δx_y"])
+
+# ╔═╡ b14d282d-de10-4712-9f0f-2ca2b3b0ca3b
+example_params
+
+# ╔═╡ 10ed85de-223a-40a1-99bb-f2e6c613a3f8
+@bind model_chain_val PlutoUI.Slider(1:size(model_simulation_data, 1)-1, show_value=true)
+
+# ╔═╡ 1e8b7eaa-004e-4c40-82ca-d63d4079360b
+begin
+	#@bind model_chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
+	counts_I = I * example_params["γ_matrix"][:, :, 1]
+	L_model = example_params["L_xy"] * example_params["Δx_y"]
+	current_model_chain = model_simulation_chains[model_chain_val]
+	
+	 viz_chain_data(current_model_chain, example_params, counts_I, data=model_simulation_data[1:model_chain_val, :], L=L_model, show_source=false)
+end
+
+# ╔═╡ e98ea44e-2da3-48e9-be38-a43c6983ed08
+md"# Infotaxis"
 
 # ╔═╡ 5509a7c1-1c91-4dfb-96fc-d5c33a224e73
 """
@@ -846,63 +1152,6 @@ function expected_entropy(
 
 		return exp_entropy * prob_miss
 	end
-
-
-	
-end
-
-# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
-"""
-Given the robot path, returns a tuple of optional directions the robot could travel in next.
-
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
-
-"""
-function get_next_steps(
-	robot_path::Vector{Vector{Float64}}, 
-	L::Float64; 
-	Δx::Float64=2.0,
-	allow_overlap::Bool=false
-)
-	current_pos = robot_path[end]
-
-	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
-    )
-
-	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
-	if length(robot_path) > 1
-		visited = Set((pos[1], pos[2]) for pos in [robot_path[end-1]])
-	else
-		visited = ()
-	end
-
-	if allow_overlap
-		valid_directions = Tuple(
-	        dir for (dir, delta) in directions
-	        if let new_pos = current_pos .+ delta
-	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
-	            in_bounds
-	        end
-	    )
-	else
-		valid_directions = Tuple(
-	        dir for (dir, delta) in directions
-	        if let new_pos = current_pos .+ delta
-	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
-	            not_visited = (new_pos[1], new_pos[2]) ∉ visited
-	            in_bounds && not_visited
-	        end
-	    )
-	end
-
-	return valid_directions
-
 end
 
 # ╔═╡ 8137f10d-255c-43f6-81c7-37f69e53a2e9
@@ -985,324 +1234,6 @@ function infotaxis(
 	end
 	
 	return best_direction
-
-end
-
-# ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
-"""
-Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
-
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `pr_field::Matrix{Float64}` - current posterior for the source location.
-* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
-* `data::DataFrame` - current data frame containing sample data.
-* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
-* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
-* `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
-* `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
-* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
-"""
-function thompson_sampling(
-	robot_path::Vector{Vector{Float64}}, 
-	chain::DataFrame;
-	L::Float64=50.0,
-	Δx::Float64=2.0,
-	allow_overlap::Bool=false)
-
-	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
-
-	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
-    )
-
-	if length(direction_options) < 1 && allow_overlap == true
-		@warn "found no viable direction options with overlap allowed, returning nothing"
-		return :nothing
-	end
-
-	best_direction = :nothing
-	greedy_dist = Inf
-
-	#randomly sample from the chain
-	rand_θ = chain[rand(1:nrow(chain)), :]
-	loc = robot_path[end]
-
-	for direction in direction_options
-		new_loc = loc .+ directions[direction]
-		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
-		if dist < greedy_dist
-			greedy_dist = dist
-			best_direction = direction
-		end
-	end
-
-	if best_direction == :nothing && allow_overlap == false
-		@warn "best direction == nothing, switching to allow overlap"
-		return thompson_sampling(
-			robot_path, 
-			chain,
-			L=L,
-			Δx=Δx,
-			allow_overlap=true)
-	end
-	
-	return best_direction
-
-end
-
-# ╔═╡ 76a9cb27-7cde-44a1-b845-e07cf7a8fa44
-"""
-Given the robot path, finds the best next direction the robot to travel using the method indicated (infotaxis or thompson)
-
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `pr_field::Matrix{Float64}` - current posterior for the source location.
-* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
-* `data::DataFrame` - current data frame containing sample data.
-* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
-* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
-* `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
-* `use_avg::Bool=true` - if true, will average the properties from the posterior, if false the algorithm will calculate a posterior from every single sample from the mcmc chain (WARNING, THIS IS VERY EXPENSIVE).
-* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
-* `method::String="infotaxis"` - the method to use for decision making. Must be either `"infotaxis"` or `"thompson"`.
-"""
-function find_opt_choice(
-	robot_path::Vector{Vector{Float64}}, 
-	pr_field::Matrix{Float64},
-	chain::DataFrame,
-	data::DataFrame;
-	num_mcmc_samples::Int64=100,
-	num_mcmc_chains::Int64=1,
-	L::Float64=50.0,
-	Δx::Float64=2.0,
-	use_avg::Bool=true,
-	allow_overlap::Bool=false,
-	method::String="infotaxis")
-
-	@assert method == "infotaxis" || method == "thompson" "method must be either infotaxis or thompson: method=$(method) is invalid."
-
-	if method == "infotaxis"
-		return infotaxis(
-			robot_path, 
-			P,
-			chain,
-			sim_data,
-			num_mcmc_samples=num_mcmc_samples,
-			num_mcmc_chains=num_mcmc_chains,
-			L=L,
-			Δx=Δx,
-			use_avg=use_avg
-		)
-
-	elseif method == "thompson"
-		return thompson_sampling(
-			robot_path, 
-			chain,
-			L=L,
-			Δx=Δx
-		)
-
-	else
-		error("invalid method error, please check conditionals as this error code should not be reachable.")
-	end
-
-
-end
-
-# ╔═╡ e278ec3e-c524-48c7-aa27-dd372daea005
-"""
-TODO:
-input should be starting location and a prior. It should check the information gain (entropy reduction) from each possible action and choose the action that reduces entropy the most.
-"""
-function sim(
-	num_steps::Int64; 
-	robot_start::Vector{Int64}=[0, 0], 
-	num_mcmc_samples::Int64=2000,
-	num_mcmc_chains::Int64=1,
-	L::Float64=50.0,
-	Δx::Float64=2.0,
-	x₀::Vector{Float64}=[25.0, 4.0],
-	R::Float64=10.0,
-	use_avg::Bool=true,
-	method::String="thompson",
-	save_chains::Bool=false,
-	model_params::Union{Nothing, Dict{Any, Any}}=nothing
-)
-
-	@assert (method == "infotaxis" || method == "thompson") "method must be either infotaxis or thompson: method=$(method) is invalid."
-	
-	sim_chains = Dict()
-
-	#times = 1:num_steps
-	#xs = robot_start
-	r_start = [robot_start[i] * Δx for i=1:2]
-	if isnothing(model_params)
-		c_start = count_Poisson(r_start, x₀, I, measure=true)
-	else
-		c_start = sample_model(r_start, model_params, Δx=Δx)
-	end
-	
-
-	sim_data = DataFrame(
-		"time" => [1.0],
-		"x [m]" => [r_start],
-		"counts" => [c_start]
-	)
-
-	robot_path = [r_start]
-
-	for iter = 1:num_steps
-
-		model = rad_model(sim_data)
-
-		
-		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
-		)
-
-		if save_chains
-			sim_chains[iter] = model_chain
-		end
-		
-		P = chain_to_P(model_chain)
-
-		if norm([robot_path[end][i] - x₀[i] for i=1:2]) < Δx
-			@info "Source found at step $(iter), robot at location $(robot_path[end])"
-			break
-		end
-		
-		best_direction = find_opt_choice(
-			robot_path, 
-			P,
-			model_chain,
-			sim_data,
-			num_mcmc_samples=num_mcmc_samples,
-			num_mcmc_chains=num_mcmc_chains,
-			L=L,
-			Δx=Δx,
-			use_avg=use_avg,
-			method=method
-		)
-
-		if best_direction == :nothing
-			@warn "iteration $(iter) found best_direction to be :nothing"
-			return sim_data
-		end
-			
-
-		move!(robot_path, best_direction, Δx=Δx)
-		if isnothing(model_params)
-			c_measurement = count_Poisson(robot_path[end], x₀, I, measure=true)
-		else
-			c_measurement = sample_model(robot_path[end], model_params, Δx=Δx)
-		end
-		
-		push!(
-			sim_data,
-			Dict("time" => iter+1.0, 
-			"x [m]" => robot_path[end], 
-			"counts" => c_measurement
-			)
-		)
-	end
-
-	if save_chains
-		return sim_data, sim_chains
-	else
-		return sim_data
-	end
-end
-
-# ╔═╡ 17523df5-7d07-4b96-8a06-5c2f0915d96a
-simulation_data, simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2)
-
-# ╔═╡ cf110412-747d-44fa-8ab9-991b863eecb3
-viz_data(simulation_data, source=x₀, incl_model=true)
-
-# ╔═╡ 474f7e4b-2b95-4d4e-a82a-2d0ab6cffdcf
-@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
-
-# ╔═╡ 962d552d-9cb2-4a69-9338-5995f7788b96
-begin
-	#@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
-	current_chain = simulation_chains[chain_val]
-	 viz_chain_data(current_chain, data=simulation_data[1:chain_val, :])
-end
-
-# ╔═╡ 139eb9e5-d126-4202-b621-47c38ce1ab93
- viz_posterior(current_chain)
-
-# ╔═╡ d296d31a-d63e-4650-920e-6ab870f4b617
-md"""
-# Simulation informed work
-
-"""
-
-# ╔═╡ e49b85a4-e52c-48c8-aedc-8e966a5aa8b2
-md"""
-# TODO
-
-* Implement function to import data from Dr. Yang's mesh modeling software.
-
-* Once data is imported for both simulations with and without obstructions. Create visualization to match the vizualizations provided by Dr. Yang.
-
-* Convert values to counts and place agent and test naive approach by placing in multiple locations. Compare with and without obstructions and compare to 1/r^2 model.
-"""
-
-# ╔═╡ 0b8293ac-46c1-41ce-8aaf-53aab6a1a8c1
-md"""
-## Filename
-"""
-
-# ╔═╡ 2b3183d1-f4ca-4549-a43c-b97958308238
-
-
-# ╔═╡ ce4bea8d-2da4-4832-9aa4-a348cbbe3812
-example_data = extract_data(data_files[2])
-
-# ╔═╡ 91a58f53-0d7a-4026-8786-aae78d243c61
-example_params = extract_parameters(example_data)
-
-# ╔═╡ 0f840879-7f31-4d31-b8b9-28c6ddac19a8
-md"""
-## visual
-"""
-
-# ╔═╡ 643723ec-a1b5-4ae2-acb6-c87c6b7d63db
-viz_model_data(example_params)
-
-# ╔═╡ b25f5d75-9516-405b-89b6-ce685d2112ee
-md"""
-# sample model
-"""
-
-# ╔═╡ 0d60828a-0fb4-404a-b411-010ef464f011
-sample_model([250.0, 250.0], example_params)
-
-# ╔═╡ 406a486a-9fb1-4d34-aee2-3e48fa5480a4
-
-
-# ╔═╡ 8d4cfc03-d13e-43cd-b9f4-b057f7173f21
-model_simulation_data, model_simulation_chains = sim(30, method="thompson", save_chains=true, num_mcmc_samples=600, num_mcmc_chains=2, model_params=example_params, Δx=example_params["Δx_y"])
-
-# ╔═╡ b14d282d-de10-4712-9f0f-2ca2b3b0ca3b
-example_params
-
-# ╔═╡ 10ed85de-223a-40a1-99bb-f2e6c613a3f8
-@bind model_chain_val PlutoUI.Slider(1:size(model_simulation_data, 1)-1, show_value=true)
-
-# ╔═╡ 1e8b7eaa-004e-4c40-82ca-d63d4079360b
-begin
-	#@bind model_chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
-	counts_I = I * example_params["γ_matrix"][:, :, 1]
-	L_model = example_params["L_xy"] * example_params["Δx_y"]
-	current_model_chain = model_simulation_chains[model_chain_val]
-	
-	 viz_chain_data(current_model_chain, example_params, counts_I, data=model_simulation_data[1:model_chain_val, :], L=L_model, show_source=false)
 end
 
 # ╔═╡ Cell order:
@@ -1325,7 +1256,6 @@ end
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
-# ╠═7ed3ac02-2915-4995-8ff4-ea781b283f7f
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
@@ -1337,6 +1267,7 @@ end
 # ╟─015b9f4d-09b8-49f3-bc03-2fd3b972e933
 # ╠═126df6ec-9074-4712-b038-9371ebdbc51d
 # ╟─bfe17543-7b54-4f52-9679-f723adafdbdd
+# ╠═83052e75-db08-4e0a-8c77-35487c612dae
 # ╠═c6c39d74-4620-43df-8eb1-83c436924530
 # ╠═3c0f8b63-6276-488c-a376-d5c554a5555d
 # ╠═ddc23919-17a7-4c78-86f0-226e4d447dbe
@@ -1363,23 +1294,21 @@ end
 # ╟─aa72cf61-839d-4707-95c8-0a9230e77d56
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
-# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
-# ╟─c8f33986-82ee-4d65-ba62-c8e3cf0dc8e9
-# ╟─c37e3d82-2320-4278-8b9b-24912a93fd96
-# ╟─10fe24bf-0c21-47cc-85c0-7c3d7d77b78b
-# ╠═06ecc454-9cd5-432d-bc1c-b269ee3f0794
-# ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
-# ╟─14b34270-b47f-4f22-9ba4-db294f2c029c
 # ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
 # ╠═5695ee1e-a532-4a89-bad1-20e859016174
-# ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
-# ╟─f04d1521-7fb4-4e48-b066-1f56805d18de
-# ╠═83052e75-db08-4e0a-8c77-35487c612dae
-# ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
-# ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
+# ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
+# ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
-# ╠═76a9cb27-7cde-44a1-b845-e07cf7a8fa44
-# ╠═e278ec3e-c524-48c7-aa27-dd372daea005
+# ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
+# ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
+# ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
+# ╠═f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
+# ╠═9a1fa610-054b-4b05-a32b-610f72329166
+# ╠═a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
+# ╠═f5ea3486-4930-42c2-af1b-d4a17053976a
+# ╠═4a0c8aab-2424-441d-a8c7-9f8076ecbae7
+# ╠═325d565d-ef0e-434a-826a-adb68825f0fd
 # ╠═17523df5-7d07-4b96-8a06-5c2f0915d96a
 # ╠═cf110412-747d-44fa-8ab9-991b863eecb3
 # ╠═962d552d-9cb2-4a69-9338-5995f7788b96
@@ -1395,8 +1324,10 @@ end
 # ╠═643723ec-a1b5-4ae2-acb6-c87c6b7d63db
 # ╟─b25f5d75-9516-405b-89b6-ce685d2112ee
 # ╠═0d60828a-0fb4-404a-b411-010ef464f011
-# ╠═406a486a-9fb1-4d34-aee2-3e48fa5480a4
 # ╠═8d4cfc03-d13e-43cd-b9f4-b057f7173f21
 # ╠═1e8b7eaa-004e-4c40-82ca-d63d4079360b
 # ╠═b14d282d-de10-4712-9f0f-2ca2b3b0ca3b
 # ╠═10ed85de-223a-40a1-99bb-f2e6c613a3f8
+# ╟─e98ea44e-2da3-48e9-be38-a43c6983ed08
+# ╠═8137f10d-255c-43f6-81c7-37f69e53a2e9
+# ╠═5509a7c1-1c91-4dfb-96fc-d5c33a224e73
