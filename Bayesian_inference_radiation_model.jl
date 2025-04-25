@@ -20,7 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -119,6 +119,31 @@ end
 md"""
 # Data Import
 """
+
+# ╔═╡ 181c27f4-6830-4c4d-9392-3237564e6cb1
+md"## obstruction data"
+
+# ╔═╡ 52814746-ae35-4ffa-9be0-66854a4d96bf
+begin
+	#rectangular block x(150-350) y(650-750) z(0-200)
+	wide_rect = Rectangle(
+		(150.0 + (350.0-150.0)/2, 650.0 + (750.0-650.0)/2),
+		350.0-150.0,
+		750.0-650.0
+	)
+	#rectangular block x(450-550) y(450-550) z(0-200)
+	square = Rectangle(
+		(450.0 + (550.0-450.0)/2, 450.0 + (550.0-450.0)/2),
+		550.0-450.0,
+		550.0-450.0
+	)
+	#cylinder bottom (750,350,0) height = 200, radius = 50
+	cylinder = Circle(
+		(750.0+50.0, 350.0+50.0),
+		50.0
+	)
+	obstructions = [wide_rect, square, cylinder]
+end
 
 # ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
 function extract_parameters(data::Dict)
@@ -279,7 +304,11 @@ function viz_model_data!(ax, rad_sim::RadSim; z_slice::Int64=1)
 end
 
 # ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-function viz_model_data(rad_sim::RadSim; z_slice::Int64=1)
+function viz_model_data(
+	rad_sim::RadSim; 
+	z_slice::Int64=1, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
 	fig = Figure()
 	ax  = Axis(
 	    fig[1, 1], 
@@ -541,7 +570,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
-		Colorbar(fig[1, 2], hm, label = "counts [counts/s]", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+		Colorbar(fig[1, 2], hm, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
 	
 	end
 
@@ -750,15 +779,28 @@ Given the robot path, returns a tuple of optional directions the robot could tra
 
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
 * `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
+* `Δx::Float64=10.0` - step size of the robot.
 * `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
 """
 function get_next_steps(
 	robot_path::Vector{Vector{Float64}}, 
 	L::Float64; 
-	Δx::Float64=2.0,
-	allow_overlap::Bool=false
+	Δx::Float64=10.0,
+	allow_overlap::Bool=false,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
 )
+	function overlaps(pos::Vector{Float64}, rect::Rectangle)
+	    x, y = pos
+	    cx, cy = rect.center
+	    hw, hh = rect.width / 2, rect.height / 2
+	    return (cx - hw ≤ x ≤ cx + hw) && (cy - hh ≤ y ≤ cy + hh)
+	end
+
+	function overlaps(pos::Vector{Float64}, circ::Circle)
+	    x, y = pos
+	    cx, cy = circ.center
+	    return (x - cx)^2 + (y - cy)^2 ≤ circ.radius^2
+	end
 	current_pos = robot_path[end]
 
 	directions = Dict(
@@ -769,32 +811,18 @@ function get_next_steps(
     )
 
 	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
-	if length(robot_path) > 1
-		visited = Set((pos[1], pos[2]) for pos in [robot_path[end-1]])
-	else
-		visited = ()
-	end
+	visited = length(robot_path) > 1 ? Set([(robot_path[end-1][1], robot_path[end-1][2])]) : Set()
 
-	if allow_overlap
-		valid_directions = Tuple(
-	        dir for (dir, delta) in directions
-	        if let new_pos = current_pos .+ delta
-	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
-	            in_bounds
-	        end
-	    )
-	else
-		valid_directions = Tuple(
-	        dir for (dir, delta) in directions
-	        if let new_pos = current_pos .+ delta
-	            in_bounds = 0.0 ≤ new_pos[1] ≤ L && 0.0 ≤ new_pos[2] ≤ L
-	            not_visited = (new_pos[1], new_pos[2]) ∉ visited
-	            in_bounds && not_visited
-	        end
-	    )
-	end
+	
+	function is_valid(dir)
+        new_pos = current_pos .+ directions[dir]
+        in_bounds = all(0.0 .≤ new_pos .≤ L)
+        not_visited = allow_overlap || ((new_pos[1], new_pos[2]) ∉ visited)
+        not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
+        return in_bounds && not_visited && not_blocked
+    end
 
-	return valid_directions
+	return Tuple(filter(is_valid, keys(directions)))
 
 end
 
@@ -855,6 +883,12 @@ function thompson_sampling(
 	return best_direction
 
 end
+
+# ╔═╡ 41331075-ce4b-4f55-9918-19c96924cc89
+get_next_steps([[9.0, 990.0], [450.0, 500.0]], 1000.0, obstructions=obstructions)
+
+# ╔═╡ cc002c21-c21d-4d47-b5ea-aee1dc7f3de1
+obstructions
 
 # ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
 md"## simulate movement"
@@ -963,7 +997,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+#simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
@@ -988,7 +1022,7 @@ end
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+#simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
 viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed)
@@ -1005,6 +1039,31 @@ end
 # ╔═╡ d14fc2b4-ad11-4506-a580-06bfefede40b
  viz_posterior(current_chain_obst)
 
+# ╔═╡ a53b3039-eb9e-45aa-914f-034d2a5b6e01
+md"# Save sim data"
+
+# ╔═╡ 34527801-4098-4ffe-99c0-5abbdd99ee55
+begin
+	sim_data = Dict(
+		"obstr" => Dict(
+			"sim_data" => simulation_data_obst,
+			"chains" => simulation_chains_obst
+		),
+		"no_obstr" => Dict(
+			"sim_data" => simulation_data,
+			"chains" => simulation_chains
+		)
+	)
+
+	save("sim_data_1.jld2", sim_data)
+end
+
+# ╔═╡ b4a6466f-cdd9-4865-899f-b27adcc26a86
+
+
+# ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -1018,6 +1077,8 @@ end
 # ╟─03910612-d3fe-481c-bb70-dd5578bd8258
 # ╠═dd357479-64ef-4823-8aba-931323e89aed
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
+# ╟─181c27f4-6830-4c4d-9392-3237564e6cb1
+# ╠═52814746-ae35-4ffa-9be0-66854a4d96bf
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
 # ╠═19c95a83-670c-4ad6-82a1-5a4b6809f1d4
 # ╠═1197e64f-34c2-4892-8da5-3b26ee6e7c2f
@@ -1070,6 +1131,8 @@ end
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╠═41331075-ce4b-4f55-9918-19c96924cc89
+# ╠═cc002c21-c21d-4d47-b5ea-aee1dc7f3de1
 # ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
 # ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
 # ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
@@ -1086,3 +1149,7 @@ end
 # ╠═3ff17eaf-974d-4bf0-b75f-d3ef473730bf
 # ╠═ea505dc1-a18f-408f-bff8-3b488c49fdb0
 # ╠═d14fc2b4-ad11-4506-a580-06bfefede40b
+# ╟─a53b3039-eb9e-45aa-914f-034d2a5b6e01
+# ╠═34527801-4098-4ffe-99c0-5abbdd99ee55
+# ╠═b4a6466f-cdd9-4865-899f-b27adcc26a86
+# ╠═40cfe92d-b707-4b22-b3f9-228e5a0df7b2
