@@ -139,7 +139,7 @@ begin
 	)
 	#cylinder bottom (750,350,0) height = 200, radius = 50
 	cylinder = Circle(
-		(750.0+50.0, 350.0+50.0),
+		(750.0, 350.0),
 		50.0
 	)
 	obstructions = [wide_rect, square, cylinder]
@@ -283,8 +283,37 @@ md"""
 ## `Visualize` - Imported Data
 """
 
+# ╔═╡ 173feaf5-cbfa-4e94-8de5-1a5311cdf14e
+function viz_obstructions!(ax, obstructions::Vector{Obstruction})
+	for obs in obstructions
+		if obs isa Rectangle
+			cx, cy = obs.center
+			w2, h2 = obs.width / 2, obs.height / 2
+			rect_vertices = [
+				(cx - w2, cy - h2),
+				(cx + w2, cy - h2),
+				(cx + w2, cy + h2),
+				(cx - w2, cy + h2),
+			]
+			poly!(ax, rect_vertices, color=ColorSchemes.bamako10[1], strokewidth=1.0, transparency=true)
+		elseif obs isa Circle
+			θ = range(0, 2π; length=100)
+			cx, cy = obs.center
+			r = obs.radius
+			xs = cx .+ r .* cos.(θ)
+			ys = cy .+ r .* sin.(θ)
+			poly!(ax, xs, ys, color=ColorSchemes.bamako10[1])
+		end
+	end
+end
+
 # ╔═╡ 7211ea6e-6535-4e22-a2ef-a1994e81d22a
-function viz_model_data!(ax, rad_sim::RadSim; z_slice::Int64=1)
+function viz_model_data!(
+	ax, 
+	rad_sim::RadSim; 
+	z_slice::Int64=1, 	
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
 	
 	scale = ReversibleScale(
 	    x -> log10(x + 1),   # forward: avoids log(0)
@@ -300,6 +329,11 @@ function viz_model_data!(ax, rad_sim::RadSim; z_slice::Int64=1)
 	counts_I = I * rad_sim.γ_matrix[z_slice]
 
 	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale)
+
+	if !isnothing(obstructions)
+		viz_obstructions!(ax, obstructions)
+	end
+	
 	return hm
 end
 
@@ -319,7 +353,7 @@ function viz_model_data(
 
 	counts_I = I * rad_sim.γ_matrix[z_slice]
 	
-	hm = viz_model_data!(ax, rad_sim)
+	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
 
 	#establish logarithmic colorbar tick values
 	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
@@ -335,7 +369,7 @@ end
 viz_model_data(test_rad_sim)
 
 # ╔═╡ bbeed200-3315-4546-9540-16864843f178
-viz_model_data(test_rad_sim_obstructed)
+viz_model_data(test_rad_sim_obstructed, obstructions=obstructions)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -535,7 +569,7 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6, show_lines:
 end
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0)	    
+function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0, 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing)	    
 	fig = Figure(size=(res, res))
 	ax  = Axis(
 	    fig[1, 1], 
@@ -563,7 +597,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 		)
 		
 		
-		hm = viz_model_data!(ax, rad_sim)
+		hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
 
 		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
 		colorbar_tick_values[1] = 0.0
@@ -744,29 +778,6 @@ end
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
 
-# ╔═╡ baa90d24-6ab4-4ae8-9565-c2302428e9e7
-"""
-entropy of belief state H(s)
-(i.e. entropy of posterior over source location)
-"""
-entropy(P::Matrix{Float64}) = sum(
-	[-P[i] * log2(P[i]) for i in eachindex(P) if P[i] > 0.0]
-)
-
-# ╔═╡ 5695ee1e-a532-4a89-bad1-20e859016174
-"""
-Sets probability of finding the source at the robot's current coordinates to 0 and renormalizes the probability field.
-
-* `r::Vector{Float64}` - robot's coordinates
-* `pr_field::Matrix{Float64}` - probability field to be updated
-"""
-function miss_source(r::Vector{Float64}, pr_field::Matrix{Float64})
-	indicies = pos_to_index(r)
-	pr_field[(indicies...)] = 0.0
-	pr_field .= pr_field/sum(pr_field)
-	return pr_field
-end
-
 # ╔═╡ bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 md"# Thompson sampling"
 
@@ -781,6 +792,7 @@ Given the robot path, returns a tuple of optional directions the robot could tra
 * `L::Float64` - the width/length of the space being explored.
 * `Δx::Float64=10.0` - step size of the robot.
 * `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
 """
 function get_next_steps(
 	robot_path::Vector{Vector{Float64}}, 
@@ -838,15 +850,18 @@ Given the robot path, finds the best next direction the robot to travel using th
 * `L::Float64` - the width/length of the space being explored.
 * `Δx::Float64=2.0` - step size of the robot.
 * `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
 """
 function thompson_sampling(
 	robot_path::Vector{Vector{Float64}}, 
 	chain::DataFrame;
 	L::Float64=50.0,
 	Δx::Float64=2.0,
-	allow_overlap::Bool=false)
+	allow_overlap::Bool=false,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing)
 
-	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap)
+	#find direction options from left, right, up, down within domain
+	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap, obstructions=obstructions)
 
 	if length(direction_options) < 1 && allow_overlap == true
 		@warn "found no viable direction options with overlap allowed, returning nothing"
@@ -877,18 +892,13 @@ function thompson_sampling(
 			chain,
 			L=L,
 			Δx=Δx,
-			allow_overlap=true)
+			allow_overlap=true,
+			obstructions=obstructions)
 	end
 	
 	return best_direction
 
 end
-
-# ╔═╡ 41331075-ce4b-4f55-9918-19c96924cc89
-get_next_steps([[9.0, 990.0], [450.0, 500.0]], 1000.0, obstructions=obstructions)
-
-# ╔═╡ cc002c21-c21d-4d47-b5ea-aee1dc7f3de1
-obstructions
 
 # ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
 md"## simulate movement"
@@ -909,6 +919,7 @@ Runs a simulation by placing a robot, calculating a posterior, sampling the post
 * `x₀::Vector{Float64}=[250.0, 250.0]` - source location, this tells the simulation to stop if the current location is within Δx of x₀.
 * `save_chains::Bool=false` - set to true to save the MCMC simulation chain data for every step.
 * `z_index::Int=1` - sets the current z index of the γ_matrx, for now keep at 1.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
 """
 function simulate(
 	rad_sim::RadSim,
@@ -922,7 +933,8 @@ function simulate(
 	allow_overlap::Bool=false,
 	x₀::Vector{Float64}=[250.0, 250.0],
 	save_chains::Bool=false,
-	z_index::Int=1
+	z_index::Int=1,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
 )
 	
 	sim_chains = Dict()
@@ -963,7 +975,8 @@ function simulate(
 			model_chain,
 			L=L,
 			Δx=Δx,
-			allow_overlap=allow_overlap
+			allow_overlap=allow_overlap,
+			obstructions=obstructions
 		)
 
 		if best_direction == :nothing
@@ -997,7 +1010,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-#simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
@@ -1022,7 +1035,7 @@ end
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-#simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
 viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed)
@@ -1055,7 +1068,7 @@ begin
 		)
 	)
 
-	save("sim_data_1.jld2", sim_data)
+	#save("sim_data_1.jld2", sim_data)
 end
 
 # ╔═╡ b4a6466f-cdd9-4865-899f-b27adcc26a86
@@ -1084,6 +1097,7 @@ end
 # ╠═1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 # ╟─7278adb5-2da1-4ea1-aa38-d82c23510242
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+# ╠═173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 # ╠═bbeed200-3315-4546-9540-16864843f178
@@ -1125,14 +1139,10 @@ end
 # ╟─aa72cf61-839d-4707-95c8-0a9230e77d56
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
-# ╠═baa90d24-6ab4-4ae8-9565-c2302428e9e7
-# ╠═5695ee1e-a532-4a89-bad1-20e859016174
 # ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
-# ╠═41331075-ce4b-4f55-9918-19c96924cc89
-# ╠═cc002c21-c21d-4d47-b5ea-aee1dc7f3de1
 # ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
 # ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
 # ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
