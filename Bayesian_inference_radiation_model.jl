@@ -447,7 +447,7 @@ end
 mean(Poisson(5.0))
 
 # ╔═╡ 5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
-viz_c_analytical(scale_max = maximum(I * test_rad_sim.γ_matrix[1]))
+viz_c_analytical(scale_max = 1.0*10^6)
 
 # ╔═╡ 31864185-6eeb-4260-aa77-c3e94e467558
 md"# Simulate Movement"
@@ -519,7 +519,8 @@ begin
 	
 	move!(robot_path, :up, 5)
 	move!(robot_path, :right, 7)
-	# move!(robot_path, :up, 3)
+	move!(robot_path, :up, 10)
+	move!(robot_path, :right, 15)
 	
 	data = DataFrame(
 		"time" => 1:length(robot_path),
@@ -641,18 +642,11 @@ md"## naive rad model"
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
 @model function rad_model(data)
-    #=
-	prior distributions
-	=#
 	# source location
     x₀ ~ filldist(Uniform(0.0, L), 2)
 	# source strength
 	I ~ Uniform(0.0, I_max)
 
-    #=
-	likelihood
-		(loop thru observations)
-	=#
     for i in 1:nrow(data)
         data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I)
     end
@@ -687,15 +681,20 @@ function viz_chain_data!(ax, chain; show_source::Bool=true)
 end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing)
+function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing, scale_max::Union{Float64, Int}=200.0)
 	fig = Figure(size = (res, res))
-	ax = Axis(fig[1, 1])
+	ax = Axis(fig[1, 1], aspect=DataAspect())
 
 	viz_chain_data!(ax, chain, show_source=show_source)
 
 	if !isnothing(path_data)
 		sc = viz_path!(ax, path_data)
-		Colorbar(fig[1, 2], sc, label="counts")
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=15, labelsize=25, colorrange=(0.0, scale_max))
 	end
 
 	xlims!(-1, L+1)
@@ -703,6 +702,9 @@ function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bo
 	
 	return fig
 end
+
+# ╔═╡ adfcd50c-18b4-476a-ae6e-d78cee0eda79
+data[:, "counts"]
 
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
  viz_chain_data(chain)
@@ -777,6 +779,70 @@ end
 
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
+
+# ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
+md"# Exploration control"
+
+# ╔═╡ 8c18d4e8-fd5c-4fd4-8f1e-516615a9e5f0
+md"## Entropy"
+
+# ╔═╡ ed8381e3-7a83-4afc-a95d-5cbd03b7e852
+"""
+entropy of the posterior over source location.
+"""
+function entropy(chain::DataFrame)
+	P = chain_to_P(chain)
+	entropy = sum(
+		[-P[i] * log2(P[i]) for i in eachindex(P) if P[i] > 0.0]
+	)
+	return entropy
+end
+
+# ╔═╡ f05a7b58-55ac-492c-b0f5-6357cb3e4702
+entropy(chain)
+
+# ╔═╡ eafb66bc-6da3-4570-b62a-922627e6ccde
+md"## `Visualize` - Simulation chain entropy"
+
+# ╔═╡ 600a5f36-cfa2-4848-8984-44f0ae54ed67
+function viz_sim_chain_entropy(chains::Dict)
+
+	num_sims = length(chains)
+	entropys = [entropy(chains[i]) for i=1:num_sims]
+
+	fig = Figure()
+	ax = Axis(fig[1, 1], xlabel="step", ylabel="posterior entropy")
+
+	lines!(ax, 1:num_sims, entropys)
+
+	fig
+end
+
+# ╔═╡ 28f9219a-6758-4aa3-8f96-f5b2e8a8e5d7
+function viz_sim_chain_σ(chains::Dict; window_size::Int=5)
+
+	
+	num_sims = length(chains)
+	σs = zeros(num_sims)
+
+	#Calculate the Euclidean norm or L2 norm or root sum of squares RSS.
+	for i=1:num_sims
+		σₓ₁ = std(chains[i][:, "x₀[1]"])
+		σₓ₂ = std(chains[i][:, "x₀[2]"])
+		σ_total = sqrt(σₓ₁^2 + σₓ₂^2)
+
+		σs[i] = σ_total
+	end
+
+	σs_smooth = movmean(σs, window_size)
+
+	fig = Figure()
+	ax = Axis(fig[1, 1], xlabel="step", ylabel="posterior L2 norm")
+
+	lines!(ax, 1:num_sims, σs_smooth )
+
+	fig
+end
 
 # ╔═╡ bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 md"# Thompson sampling"
@@ -1012,11 +1078,20 @@ start = [70, 70]
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
 simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
 
+# ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
+viz_sim_chain_entropy(simulation_chains)
+
+# ╔═╡ f063123b-bab8-435c-b128-0dc72d31b5fb
+viz_sim_chain_σ(simulation_chains)
+
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
 
 # ╔═╡ 9a1fa610-054b-4b05-a32b-610f72329166
-viz_data_collection(simulation_data, rad_sim=test_rad_sim)
+viz_data_collection(DataFrame(simulation_data[1:104, :]), rad_sim=test_rad_sim)
+
+# ╔═╡ ad7ec330-4dd5-411a-a5cf-be1f259fa94a
+DataFrame(simulation_data[1, :])
 
 # ╔═╡ f5ea3486-4930-42c2-af1b-d4a17053976a
 @bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
@@ -1025,7 +1100,7 @@ viz_data_collection(simulation_data, rad_sim=test_rad_sim)
 begin
 	#@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 	current_chain = simulation_chains[chain_val]
-	 viz_chain_data(current_chain, path_data=simulation_data[1:chain_val, :])
+	 viz_chain_data(current_chain, path_data=simulation_data[1:chain_val, :], scale_max=500000)
 end
 
 # ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
@@ -1035,10 +1110,19 @@ end
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start, obstructions=obstructions)
+
+# ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
+simulation_chains_obst
+
+# ╔═╡ b7673342-70f2-4cbb-869e-1b67f9ee7235
+viz_sim_chain_entropy(simulation_chains_obst)
+
+# ╔═╡ 97de1cb8-9c72-440b-896a-a1f1d24e46f5
+viz_sim_chain_σ(simulation_chains_obst)
 
 # ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
-viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed)
+viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed, obstructions=obstructions)
 
 # ╔═╡ ea505dc1-a18f-408f-bff8-3b488c49fdb0
 @bind chain_val_obst PlutoUI.Slider(1:size(simulation_data_obst, 1)-1, show_value=true)
@@ -1128,6 +1212,7 @@ end
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
+# ╠═adfcd50c-18b4-476a-ae6e-d78cee0eda79
 # ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
 # ╟─65d603f4-4ef6-4dff-92c1-d6eef535e67e
 # ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
@@ -1139,6 +1224,18 @@ end
 # ╟─aa72cf61-839d-4707-95c8-0a9230e77d56
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
+# ╟─95837cad-192d-46b4-aaa4-c86e9b1d1c09
+# ╟─8c18d4e8-fd5c-4fd4-8f1e-516615a9e5f0
+# ╠═f05a7b58-55ac-492c-b0f5-6357cb3e4702
+# ╠═ed8381e3-7a83-4afc-a95d-5cbd03b7e852
+# ╟─eafb66bc-6da3-4570-b62a-922627e6ccde
+# ╠═9d0795fa-703e-47a4-8f1e-fe38b9d604b4
+# ╠═600a5f36-cfa2-4848-8984-44f0ae54ed67
+# ╠═b7673342-70f2-4cbb-869e-1b67f9ee7235
+# ╠═c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
+# ╠═28f9219a-6758-4aa3-8f96-f5b2e8a8e5d7
+# ╠═97de1cb8-9c72-440b-896a-a1f1d24e46f5
+# ╠═f063123b-bab8-435c-b128-0dc72d31b5fb
 # ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
@@ -1150,6 +1247,7 @@ end
 # ╠═f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
 # ╠═22a012c1-4169-4959-af47-9d4b01691ae9
 # ╠═9a1fa610-054b-4b05-a32b-610f72329166
+# ╠═ad7ec330-4dd5-411a-a5cf-be1f259fa94a
 # ╠═a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
 # ╠═f5ea3486-4930-42c2-af1b-d4a17053976a
 # ╠═4a0c8aab-2424-441d-a8c7-9f8076ecbae7
