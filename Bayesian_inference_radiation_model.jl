@@ -1197,7 +1197,7 @@ function simulate(
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
 		model_chain = DataFrame(
-			sample(model, NUTS(100, 0.65, max_depth=7), MCMCThreads(), num_mcmc_samples, num_mcmc_chains)
+			sample(model, NUTS(100, 0.65, max_depth=7), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
 		)
 
 		if save_chains
