@@ -1161,7 +1161,7 @@ function simulate(
 	num_steps::Int64; 
 	robot_start::Vector{Int64}=[0, 0], 
 	num_mcmc_samples::Int64=150,
-	num_mcmc_chains::Int64=3,
+	num_mcmc_chains::Int64=4,
 	I::Float64=I,
 	L::Float64=L,
 	Δx::Float64=Δx,
@@ -1301,7 +1301,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=3, robot_start=start, obstructions=obstructions, exploring_start=false)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=false)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
