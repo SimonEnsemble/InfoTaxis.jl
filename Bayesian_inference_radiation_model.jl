@@ -1160,8 +1160,8 @@ function simulate(
 	rad_sim::RadSim,
 	num_steps::Int64; 
 	robot_start::Vector{Int64}=[0, 0], 
-	num_mcmc_samples::Int64=2000,
-	num_mcmc_chains::Int64=1,
+	num_mcmc_samples::Int64=150,
+	num_mcmc_chains::Int64=3,
 	I::Float64=I,
 	L::Float64=L,
 	Δx::Float64=Δx,
@@ -1197,7 +1197,7 @@ function simulate(
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
 		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCSerial(), num_mcmc_samples, num_mcmc_chains)
+			sample(model, NUTS(100, 0.65, max_depth=7), MCMCThreads(), num_mcmc_samples, num_mcmc_chains)
 		)
 
 		if save_chains
@@ -1258,6 +1258,9 @@ function simulate(
 			"counts" => c_measurement
 			)
 		)
+		if iter%2 == 0
+			GC.gc()
+		end
 	end
 
 	if save_chains
@@ -1274,7 +1277,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 50, save_chains=true, num_mcmc_samples=50, num_mcmc_chains=1, robot_start=start)
+simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=150, num_mcmc_chains=3, robot_start=start,  exploring_start=false)
 
 # ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
 viz_sim_chain_entropy(simulation_chains)
@@ -1298,7 +1301,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=50, num_mcmc_chains=1, robot_start=start, obstructions=obstructions, exploring_start=false)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=3, robot_start=start, obstructions=obstructions, exploring_start=false)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1312,7 +1315,7 @@ viz_sim_chain_σ(simulation_chains_obst)
 # ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
 begin
 	for i=1:length(simulation_chains_obst)
-		viz_data_collection(simulation_data_obst[1:i, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[i], save_num=i)
+		#viz_data_collection(simulation_data_obst[1:i, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[i], save_num=i)
 	end
 end
 
