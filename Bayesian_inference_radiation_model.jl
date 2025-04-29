@@ -505,37 +505,13 @@ end
 		push!(robot_path, robot_path[end] + Δ)
 	end
 
-# ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx)
-		for i = 1:n
-			move!(robot_path, direction, Δx=Δx)
-		end
-	end
-
-# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
-begin
-	#Δx = 10.0 # m (step length for robot)
-	robot_path = [[0.0, 0.0]] # begin at origin
-	
-	move!(robot_path, :up, 5)
-	move!(robot_path, :right, 7)
-	move!(robot_path, :up, 10)
-	move!(robot_path, :right, 15)
-	
-	data = DataFrame(
-		"time" => 1:length(robot_path),
-		"x [m]" => robot_path,
-		"counts" => [sample_model(x, test_rad_sim, I=I) for x in robot_path]
-	)
-end
-
 # ╔═╡ de738002-3e80-4aab-bedb-f08533231ed7
 md"## `Visualize` - Movement and Measurement"
 
 # ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
-function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6, show_lines::Bool=false)
+function viz_path!(ax, path_data::DataFrame; scale_max::Real=1e6, show_lines::Bool=true)
 
-	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(data)]
+	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(path_data)]
 	if show_lines
 		if length(positions) > 1
 		    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
@@ -569,8 +545,152 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Float64=1e6, show_lines:
 	return sc
 end
 
+# ╔═╡ 50832f87-c7eb-4418-9864-0f807a16e7a7
+md"## Spiral movement"
+
+# ╔═╡ 7d0e24e2-de5b-448c-8884-4d407ead1319
+mutable struct SpiralController
+    pos::Vector{Float64}
+    directions::Vector{Symbol}
+    dir_idx::Int
+    step_size::Int
+    step_increment::Int
+    leg_count::Int 
+end
+
+# ╔═╡ 22652624-e2b7-48e9-bfa4-8a9473568f9d
+"""
+Initialize a spiral controller.
+
+* `start_pos` - the current location (where the spiral begins)
+* `step_init::Int=2` - the size of the initial step
+* `step_incr::Int=2` - the number of steps by which the spiral will incrementally increase
+"""
+function init_spiral(start_pos::Vector{Float64}; step_init::Int=2, step_incr::Int=2)
+    return SpiralController(
+        start_pos,
+        [:right, :up, :left, :down],
+        1,
+        step_init,
+        step_incr,
+        0
+    )
+end
+
+# ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
+function next_spiral_leg!(sc::SpiralController; Δx::Float64=10.0)
+    direction = sc.directions[sc.dir_idx]
+    Δ = get_Δ(direction, Δx=Δx)
+
+    # generate this leg of the spiral
+    segment = Vector{Vector{Float64}}()
+    for _ in 1:sc.step_size
+        sc.pos = sc.pos .+ Δ
+        push!(segment, copy(sc.pos))
+    end
+
+    # update spiral state
+    sc.dir_idx = mod1(sc.dir_idx + 1, 4)
+    sc.leg_count += 1
+    if sc.leg_count % 2 == 0
+        sc.step_size += sc.step_increment
+    end
+
+    return segment
+end
+
+# ╔═╡ 34a516d1-eb5d-49c9-8984-04a9335d358e
+#=	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
+		Δ = get_Δ(direction, Δx=Δx)
+		push!(robot_path, robot_path[end] + Δ)
+	end=#
+
+# ╔═╡ b18c28a0-3117-49be-8f63-42cdce226e60
+function fast_spiral_path(
+	robot_path::Vector{Vector{Float64}}, 
+	max_steps::Int; 
+	start_step::Int=3, 
+	step_increment::Int = 2
+)
+    pos = robot_path[end]
+    path = [pos]
+
+	function get_Δ(direction::Symbol; Δx::Float64=Δx)
+		if direction == :left
+			Δ = [-Δx, 0.0]
+		elseif direction == :right
+			Δ = [Δx, 0.0]
+		elseif direction == :up
+			Δ = [0.0, Δx]
+		elseif direction == :down
+			Δ = [0.0, -Δx]
+		else
+			error("direction not valid")
+		end
+
+		return Δ
+	end
+	
+
+    step_size = start_step
+    dir_idx = 1
+
+    while length(path) < max_steps
+        for _ in 1:2
+            direction = directions[dir_idx]
+            for _ in 1:step_size
+                pos = (pos[1] + direction[1], pos[2] + direction[2])
+                push!(path, pos)
+                if length(path) >= max_steps
+                    return path
+                end
+            end
+            dir_idx = mod1(dir_idx + 1, 4)
+        end
+        step_size += step_increment  # grow faster
+    end
+
+    return path
+end
+
+
+# ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
+md"# Turing MCMC"
+
+# ╔═╡ c6783f2e-d826-490f-93f5-3da7e2717a02
+md"## naive rad model"
+
+# ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
+@model function rad_model(data)
+	# source location
+    x₀ ~ filldist(Uniform(0.0, L), 2)
+	# source strength
+	I ~ Uniform(0.0, I_max)
+
+    for i in 1:nrow(data)
+        data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I)
+    end
+
+    return nothing
+end
+
+# ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
+md"## `Visualize` - Turing chain"
+
+# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
+function viz_chain_data!(ax, chain::DataFrame; show_source::Bool=true)
+
+	scatter!(ax,
+		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
+	)
+	if show_source
+		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
+		axislegend(ax, location=:tr)
+	end
+end
+
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0, 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing)	    
+function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0, 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing, chain_data::Union{Nothing, DataFrame}=nothing)	    
 	fig = Figure(size=(res, res))
 	ax  = Axis(
 	    fig[1, 1], 
@@ -616,6 +736,10 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 
 		#axislegend(location=:tr)
 	end
+
+	if ! isnothing(chain_data)
+		viz_chain_data!(ax, chain_data, show_source=false)
+	end
 	
 	xlims!(0-Δx, L+Δx)
 	ylims!(0-Δx, L+Δx)
@@ -631,70 +755,21 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 	fig
 end
 
-# ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
-viz_data_collection(data, rad_sim=test_rad_sim)
-
-# ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
-md"# Turing MCMC"
-
-# ╔═╡ c6783f2e-d826-490f-93f5-3da7e2717a02
-md"## naive rad model"
-
-# ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
-@model function rad_model(data)
-	# source location
-    x₀ ~ filldist(Uniform(0.0, L), 2)
-	# source strength
-	I ~ Uniform(0.0, I_max)
-
-    for i in 1:nrow(data)
-        data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I)
-    end
-
-    return nothing
-end
-
-# ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
-begin
-	#
-	prob_model = rad_model(data)
-	nb_samples = 4000 # per chain
-	nb_chains = 1      # independent chains
-	chain = DataFrame(
-		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
-	)
-end
-
-# ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
-md"## `Visualize` - Turing chain"
-
-# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
-function viz_chain_data!(ax, chain; show_source::Bool=true)
-
-	scatter!(ax,
-		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
-	)
-	if show_source
-		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
-		axislegend(ax, location=:tr)
-	end
-end
-
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing, scale_max::Union{Float64, Int}=200.0)
+function viz_chain_data(chain::DataFrame; res::Float64=800.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing, scale_max::Real=200.0)
 	fig = Figure(size = (res, res))
 	ax = Axis(fig[1, 1], aspect=DataAspect())
 
 	viz_chain_data!(ax, chain, show_source=show_source)
 
 	if !isnothing(path_data)
-		sc = viz_path!(ax, path_data)
+		sc = viz_path!(ax, path_data, scale_max=scale_max)
 		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
 		colorbar_tick_values[1] = 0.0
 
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
-		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=15, labelsize=25, colorrange=(0.0, scale_max))
+		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=15, labelsize=25)
 	end
 
 	xlims!(-1, L+1)
@@ -702,12 +777,6 @@ function viz_chain_data(chain; res::Float64=500.0, L::Float64=L, show_source::Bo
 	
 	return fig
 end
-
-# ╔═╡ adfcd50c-18b4-476a-ae6e-d78cee0eda79
-data[:, "counts"]
-
-# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain)
 
 # ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
 md"## `Visualize` - Turing chain heatmap"
@@ -739,14 +808,8 @@ function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
 	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
 end
 
-# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-P = chain_to_P(chain)
-
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
 x_bin_centers = edges_to_centers()
-
-# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
 md"## `Visualize` - Posterior"
@@ -777,9 +840,6 @@ function viz_posterior(chain::DataFrame)
 	fig
 end
 
-# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
-viz_posterior(chain)
-
 # ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
 md"# Exploration control"
 
@@ -798,9 +858,6 @@ function entropy(chain::DataFrame)
 	return entropy
 end
 
-# ╔═╡ f05a7b58-55ac-492c-b0f5-6357cb3e4702
-entropy(chain)
-
 # ╔═╡ eafb66bc-6da3-4570-b62a-922627e6ccde
 md"## `Visualize` - Simulation chain entropy"
 
@@ -818,9 +875,20 @@ function viz_sim_chain_entropy(chains::Dict)
 	fig
 end
 
-# ╔═╡ 28f9219a-6758-4aa3-8f96-f5b2e8a8e5d7
-function viz_sim_chain_σ(chains::Dict; window_size::Int=5)
+# ╔═╡ e24e2c7d-fe79-4361-91dc-75b7b6589cb8
 
+
+# ╔═╡ 28f9219a-6758-4aa3-8f96-f5b2e8a8e5d7
+function viz_sim_chain_σ(chains::Dict; window_size::Int=10, use_diff::Bool=true)
+	function movmean(v::Vector{<:Real}, window::Int)
+	    n = length(v)
+	    result = similar(v, Float64)
+	    for i in 1:n
+	        start_idx = max(1, i - window + 1)
+	        result[i] = mean(@view v[start_idx:i])
+	    end
+	    return result
+	end
 	
 	num_sims = length(chains)
 	σs = zeros(num_sims)
@@ -830,25 +898,134 @@ function viz_sim_chain_σ(chains::Dict; window_size::Int=5)
 		σₓ₁ = std(chains[i][:, "x₀[1]"])
 		σₓ₂ = std(chains[i][:, "x₀[2]"])
 		σ_total = sqrt(σₓ₁^2 + σₓ₂^2)
-
+		
 		σs[i] = σ_total
 	end
 
 	σs_smooth = movmean(σs, window_size)
 
+
+
 	fig = Figure()
 	ax = Axis(fig[1, 1], xlabel="step", ylabel="posterior L2 norm")
 
-	lines!(ax, 1:num_sims, σs_smooth )
+	if use_diff
+		σs_diff = diff(σs_smooth)
+		lines!(ax, 1:length(σs_diff), movmean(σs_diff, window_size))
+	else
+		lines!(ax, 1:num_sims, σs_smooth)		
+	end
 
 	fig
 end
+
+# ╔═╡ 89dcaca2-2f2c-4c85-900d-0bb2869ec205
+diff
 
 # ╔═╡ bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 md"# Thompson sampling"
 
 # ╔═╡ f55544f3-413d-44c5-8e81-37a5f017b460
 md"## Thompson sampling"
+
+# ╔═╡ 76bc6fcb-0018-40dd-9709-65bf9d223615
+md"### building overlap functions"
+
+# ╔═╡ 4c2ba203-95c5-4885-88ed-df9f79f12db4
+begin
+	function overlaps(pos::Vector{Float64}, rect::Rectangle)
+	    x, y = pos
+	    cx, cy = rect.center
+	    hw, hh = rect.width / 2, rect.height / 2
+	    return (cx - hw ≤ x ≤ cx + hw) && (cy - hh ≤ y ≤ cy + hh)
+	end
+
+	function overlaps(pos::Vector{Float64}, circ::Circle)
+	    x, y = pos
+	    cx, cy = circ.center
+	    return (x - cx)^2 + (y - cy)^2 ≤ circ.radius^2
+	end
+end
+
+# ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
+	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
+		if one_step
+			pos = copy(robot_path[end])
+   			Δ = get_Δ(direction; Δx=Δx)
+
+			for _ in 1:n
+        		candidate = pos .+ Δ
+        		if obstructions !== nothing && any(
+						overlaps(
+							candidate, obs
+						) for obs in obstructions
+					)
+           	 		break
+				elseif any(x -> x <= 0.0 || x >= L, candidate)
+					break
+        		end
+				#need to add logic  to make sure we're not moving off map i.e. candidate can't be greater than L or less than 0
+        		pos .= candidate
+    		end
+			push!(robot_path, pos)
+		else
+			for i = 1:n
+				move!(robot_path, direction, Δx=Δx)
+			end
+		end
+	end
+
+# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
+begin
+	#Δx = 10.0 # m (step length for robot)
+	robot_path = [[0.0, 0.0]] # begin at origin
+	
+	move!(robot_path, :up, 5)
+	move!(robot_path, :right, 7)
+	move!(robot_path, :up, 10)
+	move!(robot_path, :right, 15)
+	
+	data = DataFrame(
+		"time" => 1:length(robot_path),
+		"x [m]" => robot_path,
+		"counts" => [sample_model(x, test_rad_sim, I=I) for x in robot_path]
+	)
+end
+
+# ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
+viz_data_collection(data, rad_sim=test_rad_sim)
+
+# ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
+begin
+	#
+	prob_model = rad_model(data)
+	nb_samples = 4000 # per chain
+	nb_chains = 1      # independent chains
+	chain = DataFrame(
+		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
+	)
+end
+
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain)
+
+# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+P = chain_to_P(chain)
+
+# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+heatmap(x_bin_centers, x_bin_centers, P)
+
+# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
+viz_posterior(chain)
+
+# ╔═╡ f05a7b58-55ac-492c-b0f5-6357cb3e4702
+entropy(chain)
+
+# ╔═╡ 7d51a7f2-b0f9-4840-88e4-d5ff8bc2a7d6
+data[:, "counts"]
+
+# ╔═╡ adfcd50c-18b4-476a-ae6e-d78cee0eda79
+data[:, "counts"]
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -867,18 +1044,7 @@ function get_next_steps(
 	allow_overlap::Bool=false,
 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
 )
-	function overlaps(pos::Vector{Float64}, rect::Rectangle)
-	    x, y = pos
-	    cx, cy = rect.center
-	    hw, hh = rect.width / 2, rect.height / 2
-	    return (cx - hw ≤ x ≤ cx + hw) && (cy - hh ≤ y ≤ cy + hh)
-	end
 
-	function overlaps(pos::Vector{Float64}, circ::Circle)
-	    x, y = pos
-	    cx, cy = circ.center
-	    return (x - cx)^2 + (y - cy)^2 ≤ circ.radius^2
-	end
 	current_pos = robot_path[end]
 
 	directions = Dict(
@@ -969,6 +1135,9 @@ end
 # ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
 md"## simulate movement"
 
+# ╔═╡ 700b64f7-43d3-461b-bb15-f5905c85e99d
+robot_path
+
 # ╔═╡ 52296a3f-9fad-46a8-9894-c84eb5cc86d7
 """
 Runs a simulation by placing a robot, calculating a posterior, sampling the posterior using Thompson sampling, then making a single step and repeating `num_steps` times.
@@ -1000,7 +1169,10 @@ function simulate(
 	x₀::Vector{Float64}=[250.0, 250.0],
 	save_chains::Bool=false,
 	z_index::Int=1,
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing,
+	exploring_start::Bool=true,
+	r_check::Float64=50.0,
+	r_check_count::Int=10
 )
 	
 	sim_chains = Dict()
@@ -1018,6 +1190,9 @@ function simulate(
 	)
 
 	robot_path = [x_start]
+	start = 10
+	expl_start_steps = [start - i >= 1 ? start - i : 1 for i in 0:num_steps-1]
+	#expl_start_steps = [start - div(i, 2) >= 1 ? start - div(i, 2) : 1 for i in 0:num_steps-1]
 
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
@@ -1047,11 +1222,34 @@ function simulate(
 
 		if best_direction == :nothing
 			@warn "iteration $(iter) found best_direction to be :nothing"
-			return sim_data
+			if save_chains
+				return sim_data, sim_chains
+			else
+				return sim_data
+			end
 		end
 
 		# move robot
-		move!(robot_path, best_direction, Δx=Δx)
+		num_within_r_check = sum(
+    		norm(pos .- robot_path[end]) ≤ r_check for pos in robot_path
+		)
+		if num_within_r_check >= r_check_count
+			if sim_data[iter-1, "counts"] < 5
+				move_dist=10
+			elseif sim_data[iter-1, "counts"] < 10
+				move_dist=5
+			else
+				move_dist=1
+			end
+		else
+			move_dist=1
+		end
+		
+		if exploring_start
+			move!(robot_path, best_direction, move_dist * expl_start_steps[iter], Δx=Δx, one_step=true, L=L, obstructions=obstructions)
+		else
+			move!(robot_path, best_direction, move_dist, Δx=Δx, one_step=true, L=L, obstructions=obstructions)
+		end
 		c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
 		push!(
 			sim_data,
@@ -1076,7 +1274,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start)
+simulation_data, simulation_chains = simulate(test_rad_sim, 50, save_chains=true, num_mcmc_samples=50, num_mcmc_chains=1, robot_start=start)
 
 # ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
 viz_sim_chain_entropy(simulation_chains)
@@ -1087,30 +1285,20 @@ viz_sim_chain_σ(simulation_chains)
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
 
-# ╔═╡ 9a1fa610-054b-4b05-a32b-610f72329166
-viz_data_collection(DataFrame(simulation_data[1:104, :]), rad_sim=test_rad_sim)
-
-# ╔═╡ ad7ec330-4dd5-411a-a5cf-be1f259fa94a
-DataFrame(simulation_data[1, :])
-
 # ╔═╡ f5ea3486-4930-42c2-af1b-d4a17053976a
 @bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 
-# ╔═╡ a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
-begin
-	#@bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
-	current_chain = simulation_chains[chain_val]
-	 viz_chain_data(current_chain, path_data=simulation_data[1:chain_val, :], scale_max=500000)
-end
+# ╔═╡ 9a1fa610-054b-4b05-a32b-610f72329166
+viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simulation_chains[chain_val],  rad_sim=test_rad_sim)
 
 # ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
- viz_posterior(current_chain)
+ viz_posterior(simulation_chains[chain_val])
 
 # ╔═╡ 2f7a3d49-1864-4113-b173-ee7e8c9e62a4
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=500, num_mcmc_chains=1, robot_start=start, obstructions=obstructions)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=50, num_mcmc_chains=1, robot_start=start, obstructions=obstructions, exploring_start=false)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1121,20 +1309,24 @@ viz_sim_chain_entropy(simulation_chains_obst)
 # ╔═╡ 97de1cb8-9c72-440b-896a-a1f1d24e46f5
 viz_sim_chain_σ(simulation_chains_obst)
 
-# ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
-viz_data_collection(simulation_data_obst, rad_sim=test_rad_sim_obstructed, obstructions=obstructions)
+# ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
+begin
+	for i=1:length(simulation_chains_obst)
+		viz_data_collection(simulation_data_obst[1:i, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[i], save_num=i)
+	end
+end
 
 # ╔═╡ ea505dc1-a18f-408f-bff8-3b488c49fdb0
 @bind chain_val_obst PlutoUI.Slider(1:size(simulation_data_obst, 1)-1, show_value=true)
 
-# ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
-begin
-	current_chain_obst = simulation_chains_obst[chain_val_obst]
-	viz_chain_data(current_chain_obst, path_data=simulation_data_obst[1:chain_val_obst, :])
-end
+# ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
+viz_data_collection(simulation_data_obst[1:chain_val_obst, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[chain_val_obst])
 
 # ╔═╡ d14fc2b4-ad11-4506-a580-06bfefede40b
- viz_posterior(current_chain_obst)
+ viz_posterior(simulation_chains_obst[chain_val_obst])
+
+# ╔═╡ 4364e9b8-6635-46a6-a556-59d876164a65
+data[3, "counts"]
 
 # ╔═╡ a53b3039-eb9e-45aa-914f-034d2a5b6e01
 md"# Save sim data"
@@ -1205,12 +1397,19 @@ end
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
 # ╠═9fbe820c-7066-40b5-9617-44ae0913928e
+# ╟─50832f87-c7eb-4418-9864-0f807a16e7a7
+# ╠═7d0e24e2-de5b-448c-8884-4d407ead1319
+# ╠═22652624-e2b7-48e9-bfa4-8a9473568f9d
+# ╠═ec9e4693-771c-467d-86cc-ab2ba90019fe
+# ╠═34a516d1-eb5d-49c9-8984-04a9335d358e
+# ╠═b18c28a0-3117-49be-8f63-42cdce226e60
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
+# ╠═7d51a7f2-b0f9-4840-88e4-d5ff8bc2a7d6
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
 # ╠═adfcd50c-18b4-476a-ae6e-d78cee0eda79
 # ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
@@ -1233,22 +1432,25 @@ end
 # ╠═600a5f36-cfa2-4848-8984-44f0ae54ed67
 # ╠═b7673342-70f2-4cbb-869e-1b67f9ee7235
 # ╠═c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
+# ╠═e24e2c7d-fe79-4361-91dc-75b7b6589cb8
 # ╠═28f9219a-6758-4aa3-8f96-f5b2e8a8e5d7
+# ╠═89dcaca2-2f2c-4c85-900d-0bb2869ec205
 # ╠═97de1cb8-9c72-440b-896a-a1f1d24e46f5
 # ╠═f063123b-bab8-435c-b128-0dc72d31b5fb
 # ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
+# ╠═76bc6fcb-0018-40dd-9709-65bf9d223615
+# ╠═4c2ba203-95c5-4885-88ed-df9f79f12db4
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 # ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
+# ╠═700b64f7-43d3-461b-bb15-f5905c85e99d
 # ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
 # ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
 # ╠═ae92f6ae-298d-446d-b379-ee2190ef1915
 # ╠═f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
 # ╠═22a012c1-4169-4959-af47-9d4b01691ae9
 # ╠═9a1fa610-054b-4b05-a32b-610f72329166
-# ╠═ad7ec330-4dd5-411a-a5cf-be1f259fa94a
-# ╠═a47e9762-ec7d-4b8a-abd4-9a55cbe55e16
 # ╠═f5ea3486-4930-42c2-af1b-d4a17053976a
 # ╠═4a0c8aab-2424-441d-a8c7-9f8076ecbae7
 # ╟─2f7a3d49-1864-4113-b173-ee7e8c9e62a4
@@ -1257,6 +1459,7 @@ end
 # ╠═3ff17eaf-974d-4bf0-b75f-d3ef473730bf
 # ╠═ea505dc1-a18f-408f-bff8-3b488c49fdb0
 # ╠═d14fc2b4-ad11-4506-a580-06bfefede40b
+# ╠═4364e9b8-6635-46a6-a556-59d876164a65
 # ╟─a53b3039-eb9e-45aa-914f-034d2a5b6e01
 # ╠═34527801-4098-4ffe-99c0-5abbdd99ee55
 # ╠═b4a6466f-cdd9-4865-899f-b27adcc26a86
