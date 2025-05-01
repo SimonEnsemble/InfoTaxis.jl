@@ -20,7 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -119,6 +119,32 @@ end
 md"""
 # Data Import
 """
+
+# ╔═╡ 9ac1e08a-cd89-4afb-92d9-2bd973f06aaa
+md"## save CSV from python"
+
+# ╔═╡ e80af66e-54ab-4661-bd49-89328c17e3d4
+function parse_numpy_csv_file(path::String)
+    raw = read(path, String)
+
+    stripped = replace(raw, ['[', ']', '"', '\n', '.'] => "")
+    tokens = split(strip(stripped))
+    values = round.(Int, parse.(Float64, tokens))
+
+    #check if it's a perfect square
+    n = length(values)
+    ncols = Int(round(sqrt(n)))
+    @assert ncols^2 == n "Matrix is not square: total elements = $n, but sqrt = $ncols"
+
+    #reshape into square matrix
+    return reshape(values, ncols, ncols)
+end
+
+# ╔═╡ 2c959785-6d71-49c6-921a-16e74cb3b43e
+environment = parse_numpy_csv_file(joinpath("csv", "Walls.csv"))[:, end:-1:1]
+
+# ╔═╡ 0fc694a6-f4cf-478d-bd68-9af5f7f4f5b8
+heatmap(environment)
 
 # ╔═╡ 181c27f4-6830-4c4d-9392-3237564e6cb1
 md"## obstruction data"
@@ -282,6 +308,10 @@ end
 md"""
 ## `Visualize` - Imported Data
 """
+
+# ╔═╡ 058a327a-358f-4cf8-ae13-82926e2066f9
+
+
 
 # ╔═╡ 173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 function viz_obstructions!(ax, obstructions::Vector{Obstruction})
@@ -476,7 +506,7 @@ function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Fl
 
 	#get index from position
 	indicies = pos_to_index(x)
-	measurement = counts_I[indicies[1] , indicies[2] , z_index] + noise
+	measurement = counts_I[indicies[1] , indicies[2] , z_index] #+ noise
 	measurement = max(measurement, 0)
 
 	return round(Int, measurement)
@@ -1277,7 +1307,7 @@ md"## `Example Sim`"
 start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 100, save_chains=true, num_mcmc_samples=150, num_mcmc_chains=3, robot_start=start,  exploring_start=false)
+simulation_data, simulation_chains = simulate(test_rad_sim, 10, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start,  exploring_start=false)
 
 # ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
 viz_sim_chain_entropy(simulation_chains)
@@ -1301,7 +1331,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 150, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=false)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 10, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=false)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1350,9 +1380,6 @@ begin
 	#save("sim_data_1.jld2", sim_data)
 end
 
-# ╔═╡ b4a6466f-cdd9-4865-899f-b27adcc26a86
-
-
 # ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
 
 
@@ -1369,6 +1396,10 @@ end
 # ╟─03910612-d3fe-481c-bb70-dd5578bd8258
 # ╠═dd357479-64ef-4823-8aba-931323e89aed
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
+# ╟─9ac1e08a-cd89-4afb-92d9-2bd973f06aaa
+# ╠═e80af66e-54ab-4661-bd49-89328c17e3d4
+# ╠═2c959785-6d71-49c6-921a-16e74cb3b43e
+# ╠═0fc694a6-f4cf-478d-bd68-9af5f7f4f5b8
 # ╟─181c27f4-6830-4c4d-9392-3237564e6cb1
 # ╠═52814746-ae35-4ffa-9be0-66854a4d96bf
 # ╠═e62ba8da-663a-4b58-afe6-910710d7518e
@@ -1376,6 +1407,7 @@ end
 # ╠═1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 # ╟─7278adb5-2da1-4ea1-aa38-d82c23510242
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+# ╠═058a327a-358f-4cf8-ae13-82926e2066f9
 # ╠═173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
@@ -1465,5 +1497,4 @@ end
 # ╠═4364e9b8-6635-46a6-a556-59d876164a65
 # ╟─a53b3039-eb9e-45aa-914f-034d2a5b6e01
 # ╠═34527801-4098-4ffe-99c0-5abbdd99ee55
-# ╠═b4a6466f-cdd9-4865-899f-b27adcc26a86
 # ╠═40cfe92d-b707-4b22-b3f9-228e5a0df7b2
