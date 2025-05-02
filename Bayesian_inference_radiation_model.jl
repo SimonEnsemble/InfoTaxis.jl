@@ -97,10 +97,11 @@ begin
 	    center::Tuple{Float64, Float64}
 	    radius::Float64
 	end
-	
+	#=
 	struct Polygon <: Obstruction
 	    vertices::Vector{Tuple{Float64, Float64}}
 	end
+	=#
 end
 
 # ╔═╡ 03910612-d3fe-481c-bb70-dd5578bd8258
@@ -172,7 +173,7 @@ begin
 end
 
 # ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
-function extract_parameters(data::Dict)
+function get_matrix_params(data::Dict)
 
 	parameters = Dict()
 
@@ -238,7 +239,7 @@ function import_data(data_file::String)
 		)
 	)
 
-	
+	#read the rad sim file line by line
 	open(data_file) do f
 		while !eof(f)
 			#read the line
@@ -283,14 +284,16 @@ function import_data(data_file::String)
 		end
 	end
 
-	parameters = extract_parameters(data)
+	#convert data into a matrix
+	matrix_params = get_matrix_params(data)
 
+	#generate rad_sim struct
 	rad_sim = RadSim(
-		[parameters["γ_matrix"][:, :, i] for i in 1:size(parameters["γ_matrix"], 3)],
-		parameters["Δxy"],
-		parameters["Δz"],
-		parameters["Lxy"],
-		parameters["Lz"]
+		[matrix_params["γ_matrix"][:, :, i] for i in 1:size(matrix_params["γ_matrix"], 3)],
+		matrix_params["Δxy"],
+		matrix_params["Δz"],
+		matrix_params["Lxy"],
+		matrix_params["Lz"]
 	)
 	return rad_sim
 end
@@ -308,10 +311,6 @@ end
 md"""
 ## `Visualize` - Imported Data
 """
-
-# ╔═╡ 058a327a-358f-4cf8-ae13-82926e2066f9
-
-
 
 # ╔═╡ 173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 function viz_obstructions!(ax, obstructions::Vector{Obstruction})
@@ -643,7 +642,18 @@ function viz_chain_data!(ax, chain::DataFrame; show_source::Bool=true)
 end
 
 # ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{Float64}}=nothing, rad_sim::Union{Nothing, RadSim}=nothing, res::Float64=1000.0, L::Float64=1000.0, scale_max::Float64=1e6, z_slice::Int64=1, save_num::Int64=0, 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing, chain_data::Union{Nothing, DataFrame}=nothing)	    
+function viz_data_collection(
+	path_data::DataFrame; 
+	x₀::Union{Nothing, Vector{Float64}}=nothing, 
+	rad_sim::Union{Nothing, RadSim}=nothing, 
+	res::Float64=1000.0, 
+	L::Float64=1000.0, 
+	scale_max::Float64=1e6, 
+	z_slice::Int64=1, 
+	save_num::Int64=0, 	
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing, chain_data::Union{Nothing, DataFrame}=nothing
+)	    
+	
 	fig = Figure(size=(res, res))
 	ax  = Axis(
 	    fig[1, 1], 
@@ -679,7 +689,6 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
 		Colorbar(fig[1, 2], hm, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
-	
 	end
 
 	sc = viz_path!(ax, path_data, scale_max=scale_max)
@@ -701,6 +710,7 @@ function viz_data_collection(path_data::DataFrame; x₀::Union{Nothing, Vector{F
 		Colorbar(fig[1, 2], sc, label="counts")
 	end
 
+	#
 	if save_num > 0
 		save("$(save_num).png", fig)
 	end
@@ -1007,17 +1017,23 @@ function get_next_steps(
         :right => [Δx, 0.0]
     )
 
-	#visited = Set( (pos[1], pos[2]) for pos in robot_path )
-	visited = length(robot_path) > 1 ? Set([(robot_path[end-1][1], robot_path[end-1][2])]) : Set()
-
+	last_step = length(robot_path)>1 ? robot_path[end] .- robot_path[end-1] : nothing
 	
+
 	function is_valid(dir)
-        new_pos = current_pos .+ directions[dir]
-        in_bounds = all(0.0 .≤ new_pos .≤ L)
-        not_visited = allow_overlap || ((new_pos[1], new_pos[2]) ∉ visited)
-        not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
-        return in_bounds && not_visited && not_blocked
-    end
+		function unit(v)
+		    n = norm(v)
+		    n ≈ 0.0 ? v : v ./ n
+		end
+	    step = directions[dir]
+	    new_pos = current_pos .+ step
+	    in_bounds = all(0.0 .≤ new_pos .≤ L)
+	    dir_unit = unit(step)
+	    last_unit = isnothing(last_step) ? dir_unit : unit(last_step)
+	    not_backtrack = allow_overlap || isnothing(last_step) || dot(dir_unit, last_unit) > -0.9
+	    not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
+	    return in_bounds && not_backtrack && not_blocked
+	end
 
 	return Tuple(filter(is_valid, keys(directions)))
 
@@ -1148,12 +1164,6 @@ md"## simulate movement"
 # ╔═╡ 700b64f7-43d3-461b-bb15-f5905c85e99d
 robot_path
 
-# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
-md"## `Example Sim`"
-
-# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [70, 70]
-
 # ╔═╡ 52296a3f-9fad-46a8-9894-c84eb5cc86d7
 """
 Runs a simulation by placing a robot, calculating a posterior, sampling the posterior using Thompson sampling, then making a single step and repeating `num_steps` times.
@@ -1211,10 +1221,12 @@ function simulate(
 	if spiral
 		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=1)
 	else
-		expl_start_steps = [start - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
+		expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
 	end
-	#expl_start_steps = [start - div(i, 2) >= 1 ? start - div(i, 2) : 1 for i in 0:num_steps-1]
+	
 
+	######################################################
+	# simulation loop #
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
 		model_chain = DataFrame(
@@ -1224,13 +1236,13 @@ function simulate(
 		if save_chains
 			sim_chains[iter] = model_chain
 		end
-		#P = chain_to_P(model_chain)
 
 		if norm([robot_path[end][i] - x₀[i] for i=1:2]) <= (2 * Δx^2)^(0.5)
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
 		end
 
+		#exploring start and spiral at the beginning
 		if exploring_start && spiral && (iter <= num_exploring_start_steps)
 
 			new_pos = step_spiral!(spiral_control, 
@@ -1258,7 +1270,9 @@ function simulate(
 				allow_overlap=allow_overlap,
 				obstructions=obstructions
 			)
-	
+
+			#debug code, returns what we have so far in the case of an issue.
+			#best_direction shouldn't ever be nothing.
 			if best_direction == :nothing
 				@warn "iteration $(iter) found best_direction to be :nothing"
 				if save_chains
@@ -1301,6 +1315,9 @@ function simulate(
 		end
 		GC.gc()
 	end
+	# end simulation loop #
+	######################################################
+
 
 	if save_chains
 		return sim_data, sim_chains
@@ -1309,14 +1326,41 @@ function simulate(
 	end
 end
 
+# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
+md"## `Example Sim`"
+
+# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
+start = [70, 70]
+
+# ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
+md"### simulation control"
+
+# ╔═╡ 5c03dc8e-6484-4a73-8cb7-eb43aa382a9d
+begin
+	# change this to the number of steps you want the robot to take before giving up
+	# without obstructions
+	num_steps_sim = 100
+	#with obstructions
+	num_steps_sim_obst = 100
+
+	#num of MCMC chains & samples
+	num_mcmc_chain = 4
+	num_mcm_sample = 150
+	
+
+end
+
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, 10, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start,  exploring_start=false)
+simulation_data, simulation_chains = simulate(test_rad_sim, num_steps_sim, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start,  exploring_start=true, num_exploring_start_steps=15, spiral=false)
 
 # ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
 viz_sim_chain_entropy(simulation_chains)
 
 # ╔═╡ f063123b-bab8-435c-b128-0dc72d31b5fb
 viz_sim_chain_σ(simulation_chains)
+
+# ╔═╡ e7023831-5c03-4f53-95f4-ab837bced1b2
+print(simulation_data)
 
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
@@ -1334,7 +1378,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 100, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=true)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1410,7 +1454,6 @@ end
 # ╠═1197e64f-34c2-4892-8da5-3b26ee6e7c2f
 # ╟─7278adb5-2da1-4ea1-aa38-d82c23510242
 # ╠═63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-# ╠═058a327a-358f-4cf8-ae13-82926e2066f9
 # ╠═173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
@@ -1484,7 +1527,10 @@ end
 # ╠═52296a3f-9fad-46a8-9894-c84eb5cc86d7
 # ╟─44d81172-2aef-4ef1-90e9-6a169e92f9ff
 # ╠═ae92f6ae-298d-446d-b379-ee2190ef1915
+# ╟─ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
+# ╠═5c03dc8e-6484-4a73-8cb7-eb43aa382a9d
 # ╠═f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
+# ╠═e7023831-5c03-4f53-95f4-ab837bced1b2
 # ╠═22a012c1-4169-4959-af47-9d4b01691ae9
 # ╠═9a1fa610-054b-4b05-a32b-610f72329166
 # ╠═f5ea3486-4930-42c2-af1b-d4a17053976a
