@@ -1203,7 +1203,8 @@ function simulate(
 	num_exploring_start_steps::Int=30,
 	spiral::Bool=true,
 	r_check::Float64=70.0,
-	r_check_count::Int=10
+	r_check_count::Int=10,
+	meas_time::Float64=1.0
 )
 	# set up initial position and take measurement
 	x_start = [robot_start[i] * Δx for i=1:2]
@@ -1212,7 +1213,7 @@ function simulate(
 	# data storage
 	sim_chains = Dict()
 	sim_data = DataFrame(
-		"time" => [1.0],
+		"time" => [meas_time],
 		"x [m]" => [x_start],
 		"counts" => [c_start]
 	)
@@ -1232,8 +1233,9 @@ function simulate(
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
 		model_chain = DataFrame(
-			sample(model, NUTS(100, 0.65, max_depth=7), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
 		)
+		#NUTS(100, 0.65, max_depth=7)
 
 		if save_chains
 			sim_chains[iter] = model_chain
@@ -1256,10 +1258,10 @@ function simulate(
 								   obstructions=obstructions
 								  )
 			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
-			Δt = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
+			Δt_travel = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
 			push!(
 				sim_data,
-				Dict("time" => sim_data[end, "time"] + Δt + 1.0, 
+				Dict("time" => sim_data[end, "time"] + Δt_travel + meas_time, 
 				"x [m]" => robot_path[end], 
 				"counts" => c_measurement
 				)
@@ -1320,10 +1322,10 @@ function simulate(
 			)
 			#collect data
 			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
-			Δt = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
+			Δt_travel = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
 			push!(
 				sim_data,
-				Dict("time" => sim_data[end, "time"] + Δt + 1.0, 
+				Dict("time" => sim_data[end, "time"] + Δt_travel + meas_time, 
 				"x [m]" => robot_path[end], 
 				"counts" => c_measurement
 				)
@@ -1395,7 +1397,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=15)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
