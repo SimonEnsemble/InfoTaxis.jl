@@ -607,83 +607,6 @@ function init_spiral(start_pos::Vector{Float64}; step_init::Int=2, step_incr::In
     )
 end
 
-# ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
-function next_spiral_leg!(sc::SpiralController; Δx::Float64=10.0)
-    direction = sc.directions[sc.dir_idx]
-    Δ = get_Δ(direction, Δx=Δx)
-
-    # generate this leg of the spiral
-    segment = Vector{Vector{Float64}}()
-    for _ in 1:sc.step_size
-        sc.pos = sc.pos .+ Δ
-        push!(segment, copy(sc.pos))
-    end
-
-    # update spiral state
-    sc.dir_idx = mod1(sc.dir_idx + 1, 4)
-    sc.leg_count += 1
-    if sc.leg_count % 2 == 0
-        sc.step_size += sc.step_increment
-    end
-
-    return segment
-end
-
-# ╔═╡ 34a516d1-eb5d-49c9-8984-04a9335d358e
-#=	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
-		Δ = get_Δ(direction, Δx=Δx)
-		push!(robot_path, robot_path[end] + Δ)
-	end=#
-
-# ╔═╡ b18c28a0-3117-49be-8f63-42cdce226e60
-function fast_spiral_path(
-	robot_path::Vector{Vector{Float64}}, 
-	max_steps::Int; 
-	start_step::Int=3, 
-	step_increment::Int = 2
-)
-    pos = robot_path[end]
-    path = [pos]
-
-	function get_Δ(direction::Symbol; Δx::Float64=Δx)
-		if direction == :left
-			Δ = [-Δx, 0.0]
-		elseif direction == :right
-			Δ = [Δx, 0.0]
-		elseif direction == :up
-			Δ = [0.0, Δx]
-		elseif direction == :down
-			Δ = [0.0, -Δx]
-		else
-			error("direction not valid")
-		end
-
-		return Δ
-	end
-	
-
-    step_size = start_step
-    dir_idx = 1
-
-    while length(path) < max_steps
-        for _ in 1:2
-            direction = directions[dir_idx]
-            for _ in 1:step_size
-                pos = (pos[1] + direction[1], pos[2] + direction[2])
-                push!(path, pos)
-                if length(path) >= max_steps
-                    return path
-                end
-            end
-            dir_idx = mod1(dir_idx + 1, 4)
-        end
-        step_size += step_increment  # grow faster
-    end
-
-    return path
-end
-
-
 # ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 md"# Turing MCMC"
 
@@ -1100,6 +1023,63 @@ function get_next_steps(
 
 end
 
+# ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
+function step_spiral!(
+    sc::SpiralController,
+	robot_path::Vector{Vector{Float64}};
+    Δx::Float64=10.0,
+    L::Float64=1000.0,
+    allow_overlap::Bool=false,
+    obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+    #gt current direction and step delta
+    dir = sc.directions[sc.dir_idx]
+    Δ = get_Δ(dir; Δx=Δx)
+ 	new_pos = sc.pos .+ Δ
+
+	#obstruction or boundary check
+    if !isnothing(obstructions)
+        blocked = any(obs -> overlaps(new_pos, obs), obstructions) || any(x -> x < 0.0 || x > L, new_pos)
+        if blocked
+            valid_dirs = get_next_steps([sc.pos], 
+										L, 
+										Δx=Δx, 
+										allow_overlap=allow_overlap, obstructions=obstructions
+									   )
+            if isempty(valid_dirs)
+				push!(robot_path, copy(sc.pos))
+                return sc.pos  # stuck, return current position
+            else
+                new_dir = rand(valid_dirs)
+                Δ = get_Δ(new_dir, Δx=Δx)
+                new_pos = sc.pos .+ Δ
+                sc.pos .= new_pos
+				push!(robot_path, copy(sc.pos))
+                return new_pos
+            end
+        end
+    end
+	
+
+    #step
+    sc.pos .= new_pos
+
+    #trck how many steps taken this leg
+    sc.leg_count += 1
+
+    #aftr completing a full leg, updte dir
+    if sc.leg_count == sc.step_size
+        sc.leg_count = 0
+        sc.dir_idx = mod1(sc.dir_idx + 1, 4)
+        if iseven(sc.dir_idx)  #incr step size every 2 turns
+            sc.step_size += sc.step_increment
+        end
+    end
+
+	push!(robot_path, copy(sc.pos))
+    return copy(sc.pos)
+end
+
 # ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
 """
 Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
@@ -1168,6 +1148,12 @@ md"## simulate movement"
 # ╔═╡ 700b64f7-43d3-461b-bb15-f5905c85e99d
 robot_path
 
+# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
+md"## `Example Sim`"
+
+# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
+start = [70, 70]
+
 # ╔═╡ 52296a3f-9fad-46a8-9894-c84eb5cc86d7
 """
 Runs a simulation by placing a robot, calculating a posterior, sampling the posterior using Thompson sampling, then making a single step and repeating `num_steps` times.
@@ -1201,6 +1187,8 @@ function simulate(
 	z_index::Int=1,
 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing,
 	exploring_start::Bool=true,
+	num_exploring_start_steps::Int=30,
+	spiral::Bool=true,
 	r_check::Float64=50.0,
 	r_check_count::Int=10
 )
@@ -1220,8 +1208,11 @@ function simulate(
 	)
 
 	robot_path = [x_start]
-	start = 10
-	expl_start_steps = [start - i >= 1 ? start - i : 1 for i in 0:num_steps-1]
+	if spiral
+		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=1)
+	else
+		expl_start_steps = [start - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
+	end
 	#expl_start_steps = [start - div(i, 2) >= 1 ? start - div(i, 2) : 1 for i in 0:num_steps-1]
 
 	for iter = 1:num_steps
@@ -1240,57 +1231,75 @@ function simulate(
 			break
 		end
 
-		# use Thompson sampling to find the best direction
-		best_direction = thompson_sampling(
-			robot_path, 
-			model_chain,
-			L=L,
-			Δx=Δx,
-			allow_overlap=allow_overlap,
-			obstructions=obstructions
-		)
+		if exploring_start && spiral && (iter <= num_exploring_start_steps)
 
-		if best_direction == :nothing
-			@warn "iteration $(iter) found best_direction to be :nothing"
-			if save_chains
-				return sim_data, sim_chains
-			else
-				return sim_data
+			new_pos = step_spiral!(spiral_control, 
+								   robot_path,
+								   Δx=2*Δx, 
+								   L=L, 
+								   obstructions=obstructions
+								  )
+			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
+			push!(
+				sim_data,
+				Dict("time" => iter+1.0, 
+				"x [m]" => robot_path[end], 
+				"counts" => c_measurement
+				)
+			)
+			
+		else
+			# use Thompson sampling to find the best direction
+			best_direction = thompson_sampling(
+				robot_path, 
+				model_chain,
+				L=L,
+				Δx=Δx,
+				allow_overlap=allow_overlap,
+				obstructions=obstructions
+			)
+	
+			if best_direction == :nothing
+				@warn "iteration $(iter) found best_direction to be :nothing"
+				if save_chains
+					return sim_data, sim_chains
+				else
+					return sim_data
+				end
 			end
-		end
-
-		# move robot
-		num_within_r_check = sum(
-    		norm(pos .- robot_path[end]) ≤ r_check for pos in robot_path
-		)
-		if num_within_r_check >= r_check_count
-			if sim_data[iter-1, "counts"] < 5
-				move_dist=10
-			elseif sim_data[iter-1, "counts"] < 10
-				move_dist=5
+	
+			# move robot
+			num_within_r_check = sum(
+	    		norm(pos .- robot_path[end]) ≤ r_check for pos in robot_path
+			)
+			if num_within_r_check >= r_check_count
+				if sim_data[iter-1, "counts"] < 5
+					move_dist=10
+				elseif sim_data[iter-1, "counts"] < 10
+					move_dist=5
+				else
+					move_dist=1
+				end
 			else
 				move_dist=1
 			end
-		else
-			move_dist=1
-		end
-		
-		if exploring_start
-			move!(robot_path, best_direction, move_dist * expl_start_steps[iter], Δx=Δx, one_step=true, L=L, obstructions=obstructions)
-		else
-			move!(robot_path, best_direction, move_dist, Δx=Δx, one_step=true, L=L, obstructions=obstructions)
-		end
-		c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
-		push!(
-			sim_data,
-			Dict("time" => iter+1.0, 
-			"x [m]" => robot_path[end], 
-			"counts" => c_measurement
+			
+			if exploring_start && ! spiral
+				move!(robot_path, best_direction, expl_start_steps[iter], Δx=Δx, one_step=true, L=L, obstructions=obstructions)
+			else
+				move!(robot_path, best_direction, move_dist, Δx=Δx, one_step=true, L=L, obstructions=obstructions)
+			end
+			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
+			push!(
+				sim_data,
+				Dict("time" => iter+1.0, 
+				"x [m]" => robot_path[end], 
+				"counts" => c_measurement
+				)
 			)
-		)
-		if iter%2 == 0
-			GC.gc()
+	
 		end
+		GC.gc()
 	end
 
 	if save_chains
@@ -1299,12 +1308,6 @@ function simulate(
 		return sim_data
 	end
 end
-
-# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
-md"## `Example Sim`"
-
-# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [70, 70]
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
 simulation_data, simulation_chains = simulate(test_rad_sim, 10, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start,  exploring_start=false)
@@ -1331,7 +1334,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 10, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=false)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, 100, save_chains=true, num_mcmc_samples=100, num_mcmc_chains=4, robot_start=start, obstructions=obstructions, exploring_start=true)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1436,8 +1439,6 @@ end
 # ╠═7d0e24e2-de5b-448c-8884-4d407ead1319
 # ╠═22652624-e2b7-48e9-bfa4-8a9473568f9d
 # ╠═ec9e4693-771c-467d-86cc-ab2ba90019fe
-# ╠═34a516d1-eb5d-49c9-8984-04a9335d358e
-# ╠═b18c28a0-3117-49be-8f63-42cdce226e60
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
