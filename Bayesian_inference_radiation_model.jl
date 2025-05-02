@@ -65,7 +65,7 @@ begin
 	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
 
 	# Turing parameters
-	I_max = 1e11 #emmissions/s
+	I_max = 1e10 #emmissions/s
 
 end
 
@@ -505,7 +505,7 @@ function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Fl
 
 	#get index from position
 	indicies = pos_to_index(x)
-	measurement = counts_I[indicies[1] , indicies[2] , z_index] #+ noise
+	measurement = counts_I[indicies[1] , indicies[2] , z_index] + noise
 	measurement = max(measurement, 0)
 
 	return round(Int, measurement)
@@ -1219,7 +1219,7 @@ function simulate(
 
 	robot_path = [x_start]
 	if spiral
-		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=1)
+		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=2)
 	else
 		expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
 	end
@@ -1237,6 +1237,7 @@ function simulate(
 			sim_chains[iter] = model_chain
 		end
 
+		#if the source is found, break here
 		if norm([robot_path[end][i] - x₀[i] for i=1:2]) <= (2 * Δx^2)^(0.5)
 			@info "Source found at step $(iter), robot at location $(robot_path[end])"
 			break
@@ -1247,7 +1248,7 @@ function simulate(
 
 			new_pos = step_spiral!(spiral_control, 
 								   robot_path,
-								   Δx=2*Δx, 
+								   Δx=3*Δx, 
 								   L=L, 
 								   obstructions=obstructions
 								  )
@@ -1259,7 +1260,7 @@ function simulate(
 				"counts" => c_measurement
 				)
 			)
-			
+		#not spiraling
 		else
 			# use Thompson sampling to find the best direction
 			best_direction = thompson_sampling(
@@ -1282,27 +1283,38 @@ function simulate(
 				end
 			end
 	
-			# move robot
+			# check how many samples takin within r_check radius
 			num_within_r_check = sum(
 	    		norm(pos .- robot_path[end]) ≤ r_check for pos in robot_path
 			)
+			# if criteria met, move a lot at once
 			if num_within_r_check >= r_check_count
-				if sim_data[iter-1, "counts"] < 5
-					move_dist=10
-				elseif sim_data[iter-1, "counts"] < 10
-					move_dist=5
-				else
-					move_dist=1
-				end
+				#move less if counts are high recently
+				move_dist = sim_data[iter-1, "counts"] < 2   ? 15 :
+				            sim_data[iter-1, "counts"] < 5   ? 10 :
+				            sim_data[iter-1, "counts"] < 10  ? 5  :
+				            sim_data[iter-1, "counts"] < 30  ? 2  : 1
 			else
-				move_dist=1
+				move_dist = 1
+			end
+
+			#if exploring start, explore first, then adjust movement afterwards
+			if exploring_start && !spiral
+			    proposed_dist = expl_start_steps[iter]
+			    move_dist = proposed_dist > 1 ? proposed_dist : move_dist
 			end
 			
-			if exploring_start && ! spiral
-				move!(robot_path, best_direction, expl_start_steps[iter], Δx=Δx, one_step=true, L=L, obstructions=obstructions)
-			else
-				move!(robot_path, best_direction, move_dist, Δx=Δx, one_step=true, L=L, obstructions=obstructions)
-			end
+			#Move the robot
+			move!(
+				robot_path, 
+				best_direction, 
+				move_dist,
+      			Δx=Δx, 
+				one_step=true, 
+				L=L, 
+				obstructions=obstructions
+			)
+			#collect data
 			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
 			push!(
 				sim_data,
@@ -1339,9 +1351,9 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 100
+	num_steps_sim = 150
 	#with obstructions
-	num_steps_sim_obst = 100
+	num_steps_sim_obst = 150
 
 	#num of MCMC chains & samples
 	num_mcmc_chain = 4
@@ -1360,7 +1372,7 @@ viz_sim_chain_entropy(simulation_chains)
 viz_sim_chain_σ(simulation_chains)
 
 # ╔═╡ e7023831-5c03-4f53-95f4-ab837bced1b2
-print(simulation_data)
+#print(simulation_data)
 
 # ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
 #test_rad_sim_obstructed
