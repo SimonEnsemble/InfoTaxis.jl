@@ -1246,9 +1246,10 @@ function simulate(
 		#exploring start and spiral at the beginning
 		if exploring_start && spiral && (iter <= num_exploring_start_steps)
 
+			spiral_step_spacing = 4 * Δx
 			new_pos = step_spiral!(spiral_control, 
 								   robot_path,
-								   Δx=3*Δx, 
+								   Δx=spiral_step_spacing, 
 								   L=L, 
 								   obstructions=obstructions
 								  )
