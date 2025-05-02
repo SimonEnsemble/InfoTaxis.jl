@@ -67,6 +67,9 @@ begin
 	# Turing parameters
 	I_max = 1e10 #emmissions/s
 
+	# robot parameters
+	r_velocity = 5.0 #m/s
+
 end
 
 # ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
@@ -1159,7 +1162,7 @@ function thompson_sampling(
 end
 
 # ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
-md"## simulate movement"
+md"## simulate source localization"
 
 # ╔═╡ 700b64f7-43d3-461b-bb15-f5905c85e99d
 robot_path
@@ -1199,28 +1202,27 @@ function simulate(
 	exploring_start::Bool=true,
 	num_exploring_start_steps::Int=30,
 	spiral::Bool=true,
-	r_check::Float64=50.0,
+	r_check::Float64=70.0,
 	r_check_count::Int=10
 )
-	
-	sim_chains = Dict()
-
-	#times = 1:num_steps
-	#xs = robot_start
+	# set up initial position and take measurement
 	x_start = [robot_start[i] * Δx for i=1:2]
 	c_start = sample_model(x_start, rad_sim, I=I, Δx=Δx, z_index=z_index)
-	
 
+	# data storage
+	sim_chains = Dict()
 	sim_data = DataFrame(
 		"time" => [1.0],
 		"x [m]" => [x_start],
 		"counts" => [c_start]
 	)
-
 	robot_path = [x_start]
+
+	# exploration parameters
 	if spiral
 		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=2)
-	else
+	end
+	if exploring_start
 		expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
 	end
 	
@@ -1243,8 +1245,8 @@ function simulate(
 			break
 		end
 
-		#exploring start and spiral at the beginning
-		if exploring_start && spiral && (iter <= num_exploring_start_steps)
+		#spiral at the beginning
+		if spiral && (iter <= num_exploring_start_steps)
 
 			spiral_step_spacing = 4 * Δx
 			new_pos = step_spiral!(spiral_control, 
@@ -1254,9 +1256,10 @@ function simulate(
 								   obstructions=obstructions
 								  )
 			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
+			Δt = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
 			push!(
 				sim_data,
-				Dict("time" => iter+1.0, 
+				Dict("time" => sim_data[end, "time"] + Δt + 1.0, 
 				"x [m]" => robot_path[end], 
 				"counts" => c_measurement
 				)
@@ -1300,7 +1303,7 @@ function simulate(
 			end
 
 			#if exploring start, explore first, then adjust movement afterwards
-			if exploring_start && !spiral
+			if exploring_start
 			    proposed_dist = expl_start_steps[iter]
 			    move_dist = proposed_dist > 1 ? proposed_dist : move_dist
 			end
@@ -1317,9 +1320,10 @@ function simulate(
 			)
 			#collect data
 			c_measurement = sample_model(robot_path[end], rad_sim, I=I, Δx=Δx, z_index=z_index)
+			Δt = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
 			push!(
 				sim_data,
-				Dict("time" => iter+1.0, 
+				Dict("time" => sim_data[end, "time"] + Δt + 1.0, 
 				"x [m]" => robot_path[end], 
 				"counts" => c_measurement
 				)
@@ -1441,7 +1445,15 @@ begin
 end
 
 # ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+md"# Batch Test"
 
+# ╔═╡ d0875144-8174-4842-ac84-011f6c82f1b1
+"""
+Simulates the source localization algorithm several times and collects statistical data.
+"""
+function run_batch()
+
+end
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1557,4 +1569,5 @@ end
 # ╠═4364e9b8-6635-46a6-a556-59d876164a65
 # ╟─a53b3039-eb9e-45aa-914f-034d2a5b6e01
 # ╠═34527801-4098-4ffe-99c0-5abbdd99ee55
-# ╠═40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+# ╟─40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+# ╠═d0875144-8174-4842-ac84-011f6c82f1b1
