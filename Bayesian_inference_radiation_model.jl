@@ -1,5 +1,5 @@
 ### A Pluto.jl notebook ###
-# v0.20.6
+# v0.20.8
 
 using Markdown
 using InteractiveUtils
@@ -141,11 +141,16 @@ function parse_numpy_csv_file(path::String)
     @assert ncols^2 == n "Matrix is not square: total elements = $n, but sqrt = $ncols"
 
     #reshape into square matrix
-    return reshape(values, ncols, ncols)
+	square_matrix = reshape(values, ncols, ncols)
+
+	#flip y axis
+	square_matrix_flipped = square_matrix[:, end:-1:1]
+	
+    return square_matrix_flipped
 end
 
 # ╔═╡ 2c959785-6d71-49c6-921a-16e74cb3b43e
-environment = parse_numpy_csv_file(joinpath("csv", "Walls.csv"))[:, end:-1:1]
+environment = parse_numpy_csv_file(joinpath("csv", "Walls.csv"))
 
 # ╔═╡ 0fc694a6-f4cf-478d-bd68-9af5f7f4f5b8
 heatmap(environment)
@@ -402,6 +407,150 @@ viz_model_data(test_rad_sim)
 
 # ╔═╡ bbeed200-3315-4546-9540-16864843f178
 viz_model_data(test_rad_sim_obstructed, obstructions=obstructions)
+
+# ╔═╡ 3ee48a88-3b6a-4995-814b-507679065ff4
+md"# Create Grid for Vaacuum"
+
+# ╔═╡ 6fdb31a6-f287-40a4-8c21-2ef92ff90a99
+"""
+Identifies points that are too close (i.e. within radius) of a wall. This is being used to thicken walls for the flood fill algorithm.
+"""
+function clearance_mask(env::Matrix{Int}, radius::Int)
+    h, w = size(env)
+    mask = falses(h, w)
+
+    for y in 1:h, x in 1:w
+        for dy in -radius:radius, dx in -radius:radius
+            yy, xx = y + dy, x + dx
+			#check if the current grid location is too close to an obstacle
+            if xx ≥ 1 && xx ≤ w && yy ≥ 1 && yy ≤ h && env[yy, xx] == 1
+                mask[y, x] = true
+                break
+            end
+        end
+    end
+
+    return mask
+end
+
+
+# ╔═╡ ca763f28-d2b2-4eac-ae6c-90f74e3c42e7
+"""
+Breadth first search flood fill algorithm. Finds adjacent locations that are accessible from a seed location and returns a new matrix excluding locations that cannot be accessed from the seed by traveling adjacently.
+"""
+function flood_fill(env::Matrix{Int}, seed::Tuple{Int, Int}; clearance_radius::Int=5)
+    h, w = size(env)
+    buffer_zone = clearance_mask(env, clearance_radius)
+    visited = falses(h, w)
+
+	#check seed validity
+    x₀, y₀ = seed
+    if env[y₀, x₀] != 0 || buffer_zone[y₀, x₀]
+        error("Seed is not in valid, clear space")
+    end
+
+	#initialize q as the seed location
+    q = [(x₀, y₀)]
+
+	#flood fill algorithm, builds out from the seed until it runs into the buffer_zone
+    while !isempty(q)
+        (x, y) = pop!(q)
+
+        if x < 1 || x > w || y < 1 || y > h
+            continue
+        elseif visited[y, x] || env[y, x] != 0 || buffer_zone[y, x]
+            continue
+        end
+
+        visited[y, x] = true
+        append!(q, [(x+1, y), (x-1, y), (x, y+1), (x, y-1)])
+    end
+
+	#remake environment as 0's and 1's
+    new_env = copy(env)
+    for y in 1:h, x in 1:w
+        if env[y, x] == 0 && !visited[y, x]
+            new_env[y, x] = 1
+        end
+    end
+
+    return new_env
+end
+
+
+# ╔═╡ 00f909f7-86fd-4d8e-8db2-6a587ba5f12d
+begin
+	environment_masked = flood_fill(environment, (250, 250), clearance_radius=5)
+	heatmap(environment_masked)
+end
+
+# ╔═╡ 5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
+function generate_robot_grid_matrix(environment::Matrix{Int}, step::Int; mask_outside::Bool=true, seed::Tuple{Int, Int}=(250,250), clearance_radius::Int=5)
+    h, w = size(environment)
+
+    # Optionally apply flood fill to exclude disconnected regions
+    if mask_outside
+        environment = Int.(flood_fill(environment, seed, clearance_radius=clearance_radius))
+    end
+
+    # Compute size of grid matrix
+    grid_rows = cld(h, step)
+    grid_cols = cld(w, step)
+
+    # 3D array: [:x, :y, :valid]
+    grid = Array{Union{Int, Bool}}(undef, grid_rows, grid_cols, 3)
+
+    for i in 1:grid_rows
+        for j in 1:grid_cols
+            y = min((i - 1) * step + 1, h)
+            x = min((j - 1) * step + 1, w)
+            valid = environment[y, x] == 0
+            grid[i, j, 1] = x
+            grid[i, j, 2] = y
+            grid[i, j, 3] = valid
+        end
+    end
+
+    return grid
+end
+
+# ╔═╡ 4bda387f-4130-419c-b9a5-73ffdcc184f9
+grid = generate_robot_grid_matrix(environment, 10)
+
+# ╔═╡ 560de084-b20b-45d7-816a-c0815f398e6d
+md"""
+## `Visualize` - Rad source search grid
+"""
+
+# ╔═╡ 45014b50-c04b-4f42-83c3-775ec6cd6e3f
+function viz_robot_grid(environment::Matrix{Int}, robot_grid::Array{<:Any,3})
+    fig = Figure(size=(800,800))
+    ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search grid")
+
+    heatmap!(ax, environment; colormap = :grays)
+
+    n_valid = count(robot_grid[:, :, 3] .== true)
+
+    xs = zeros(Float64, n_valid)
+    ys = zeros(Float64, n_valid)
+
+    idx = 1
+    for i in 1:size(robot_grid, 1), j in 1:size(robot_grid, 2)
+        if robot_grid[j, i, 3] == true
+            xs[idx] = robot_grid[i, j, 1]
+            ys[idx] = robot_grid[i, j, 2]
+            idx += 1
+        end
+    end
+
+    scatter!(ax, xs, ys; color = :cyan, markersize = 10)
+
+    return fig
+end
+
+
+# ╔═╡ d47b2021-7129-4a31-8585-2c7257489b1a
+viz_robot_grid(environment, grid)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -1485,6 +1634,15 @@ end
 # ╠═7211ea6e-6535-4e22-a2ef-a1994e81d22a
 # ╠═1f12fcd1-f962-45e9-8c07-4f42f869d6a0
 # ╠═bbeed200-3315-4546-9540-16864843f178
+# ╟─3ee48a88-3b6a-4995-814b-507679065ff4
+# ╠═6fdb31a6-f287-40a4-8c21-2ef92ff90a99
+# ╠═ca763f28-d2b2-4eac-ae6c-90f74e3c42e7
+# ╠═00f909f7-86fd-4d8e-8db2-6a587ba5f12d
+# ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
+# ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
+# ╟─560de084-b20b-45d7-816a-c0815f398e6d
+# ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
+# ╠═d47b2021-7129-4a31-8585-2c7257489b1a
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
