@@ -386,7 +386,7 @@ function viz_model_data!(
 	z_slice::Int64=1, 	
 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
 )
-	
+	#set up a log scale
 	scale = ReversibleScale(
 	    x -> log10(x + 1),   # forward: avoids log(0)
 	    x -> 10^x - 1        # inverse
@@ -397,7 +397,7 @@ function viz_model_data!(
 	#counts
 	counts_I = I * rad_sim.γ_matrix[z_slice]
 
-	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale = scale)
+	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale=scale)
 
 	if !isnothing(obstructions)
 		viz_obstructions!(ax, obstructions)
@@ -476,9 +476,17 @@ end
 
 # ╔═╡ ca763f28-d2b2-4eac-ae6c-90f74e3c42e7
 """
-Breadth first search flood fill algorithm. Finds adjacent locations that are accessible from a seed location and returns a new matrix excluding locations that cannot be accessed from the seed by traveling adjacently.
+Breadth first search flood fill (paint bucket) algorithm. Finds adjacent locations that are accessible from a seed location and returns a new matrix excluding locations that cannot be accessed from the seed by traveling adjacently.
+
+* `env::Matrix{Int}` - Matrix containing only 0's and 1's, where a 0 represents open space and a 1 represents an obstruction.
+* `seed::Tuple{Int, Int}` - The starting location (indicies) for the paint bucket, this index must point to a 0 such that `env[seed]==0`.
+* `clearance_radius::Int=5` - The thickness of walls, larger values will ensure small openings are blocked, set to 0 to not use a mask at all.
 """
-function flood_fill(env::Matrix{Int}, seed::Tuple{Int, Int}; clearance_radius::Int=5)
+function flood_fill(
+	env::Matrix{Int}, 
+	seed::Tuple{Int, Int}; 
+	clearance_radius::Int=5
+)
     h, w = size(env)
     buffer_zone = clearance_mask(env, clearance_radius)
     visited = falses(h, w)
@@ -525,19 +533,36 @@ begin
 end
 
 # ╔═╡ 5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
-function generate_robot_grid_matrix(environment::Matrix{Int}, step::Int; mask_outside::Bool=true, seed::Tuple{Int, Int}=(250,250), clearance_radius::Int=5)
+"""
+Generates a matrix of locations for a robot to explore of user defined coarseness.
+
+* `environment::Matrix{Int}` - Matrix containing only 0's and 1's, where a 0 represents open space and a 1 represents an obstruction.
+* `step::Int` - The size of each step in the robot exploration matrix. For example, a step of 10 means each index in the robot matrix is 10 times further apart then the original obstruction map.
+* `mask_outside::Bool=true` - set to true to use flood fill algorithm (paint bucket) to try and remove inaccessible sections of the map.
+* `seed::Tuple{Int, Int}=(250,250)` - The starting location (indicies) for the paint bucket, this index must point to a 0 such that `env[seed]==0`.
+* `clearance_radius::Int=5` - adjusts the clearance radius of the mask, i.e. thickens the walls.
+"""
+function generate_robot_grid_matrix(
+	environment::Matrix{Int}, 
+	step::Int; 
+	mask_outside::Bool=true, 
+	seed::Tuple{Int, Int}=(250,250), 
+	clearance_radius::Int=5
+)
     h, w = size(environment)
 
     # Optionally apply flood fill to exclude disconnected regions
     if mask_outside
-        environment = Int.(flood_fill(environment, seed, clearance_radius=clearance_radius))
+        environment = Int.(flood_fill(environment, 
+									  seed, 
+									  clearance_radius=clearance_radius
+									 )
+						  )
     end
-
-    # Compute size of grid matrix
     grid_rows = cld(h, step)
     grid_cols = cld(w, step)
 
-    # 3D array: [:x, :y, :valid]
+    #grid is made of x, y coordinates of original robot space and boolean to represent accessibility
     grid = Array{Union{Int, Bool}}(undef, grid_rows, grid_cols, 3)
 
     for i in 1:grid_rows
@@ -563,8 +588,18 @@ md"""
 """
 
 # ╔═╡ 45014b50-c04b-4f42-83c3-775ec6cd6e3f
-function viz_robot_grid(environment::Matrix{Int}, robot_grid::Array{<:Any,3})
-    fig = Figure(size=(800,800))
+"""
+Visualize the robot search grid over the environment.
+
+* `environment::Matrix{Int}` - Matrix containing only 0's and 1's, where a 0 represents open space and a 1 represents an obstruction.
+* `robot_grid::Array{<:Any,3}` - The array generated from the `generate_robot_grid_matrix()` function where the first two values are the x and y coordinates of each grid location for the robot search space and the third value is the matrix of boolean values representing accessibility of locations.
+"""
+function viz_robot_grid(
+	environment::Matrix{Int}, 
+	robot_grid::Array{<:Any,3}; 
+	fig_size::Int=800
+)
+    fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search grid")
 
     heatmap!(ax, environment; colormap = :grays)
