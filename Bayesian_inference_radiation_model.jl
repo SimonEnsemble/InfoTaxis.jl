@@ -1823,7 +1823,6 @@ function test_params(
 				Δx=Δx,
 				allow_overlap=allow_overlap,
 				x₀=x₀,
-				save_chains=false,
 				z_index=z_index,
 				obstructions=obstructions,
 				exploring_start=true,
