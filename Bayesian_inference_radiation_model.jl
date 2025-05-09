@@ -1721,8 +1721,7 @@ robot_starts = gen_sample_starts(num_samples=12, obstructions=obstructions)
 Simulates the source localization algorithm several times and collects statistical data.
 """
 function run_batch(
-	rad_sim::RadSim,
-	num_steps::Int64, 
+	rad_sim::RadSim, 
 	robot_starts::Vector{Vector{Int64}}; 
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
@@ -1731,7 +1730,6 @@ function run_batch(
 	Δx::Float64=Δx,
 	allow_overlap::Bool=false,
 	x₀::Vector{Float64}=[250.0, 250.0],
-	save_chains::Bool=false,
 	z_index::Int=1,
 	obstructions::Union{Nothing, Vector{Obstruction}}=nothing,
 	exploring_start::Bool=true,
@@ -1739,13 +1737,45 @@ function run_batch(
 	spiral::Bool=true,
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
-	meas_time::Float64=1.0
+	meas_time::Float64=1.0,
+	num_replicates::Int64=5,
+	filename::String=batch_1
 )
+	test_data = Vector{DataFrame}(undef, num_replicates * length(robot_starts))
+	max_steps = 400
+	for (i, r_start) in enumerate(robot_starts)
+		for j=1:num_replicates
+			#run simulation
+			index = (i - 1) * num_replicates + j
+			test_data[index] = simulate(
+				rad_sim,
+				max_steps,
+				robot_start=r_start, 
+				num_mcmc_samples=num_mcmc_samples,
+				num_mcmc_chains=num_mcmc_chains,
+				I=I,
+				L=L,
+				Δx=Δx,
+				allow_overlap=allow_overlap,
+				x₀=x₀,
+				save_chains=false,
+				z_index=z_index,
+				obstructions=obstructions,
+				exploring_start=exploring_start,
+				num_exploring_start_steps=num_exploring_start_steps,
+				spiral=spiral,
+				r_check=r_check,
+				r_check_count=r_check_count,
+				meas_time=meas_time
+			)
+			
+		end
+	end
 
+	batch_data = Dict("batch" => test_data)
+	save("$(filename).jld2", batch_data)
+	return test_data
 end
-
-# ╔═╡ 22a43d8a-b1ef-4eb0-9757-5b3114a83d32
-all(obs -> !overlaps(new_pos, obs), obstructions)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1876,4 +1906,3 @@ all(obs -> !overlaps(new_pos, obs), obstructions)
 # ╠═5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
 # ╠═fd3393e0-9e08-41e6-a6d2-c28743cb1a68
 # ╠═d0875144-8174-4842-ac84-011f6c82f1b1
-# ╠═22a43d8a-b1ef-4eb0-9757-5b3114a83d32
