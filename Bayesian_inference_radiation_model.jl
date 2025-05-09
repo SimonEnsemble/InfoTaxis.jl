@@ -1742,10 +1742,10 @@ function run_batch(
 	r_check_count::Int=10,
 	meas_time::Float64=1.0,
 	num_replicates::Int64=5,
-	filename::String="batch_1"
+	filename::String="none"
 )
 	test_data = Vector{DataFrame}(undef, num_replicates * length(robot_starts))
-	max_steps = 400
+	max_steps = 2000
 	for (i, r_start) in enumerate(robot_starts)
 		for j=1:num_replicates
 			#run simulation
@@ -1771,12 +1771,18 @@ function run_batch(
 				r_check_count=r_check_count,
 				meas_time=meas_time
 			)
-			
+
+			if length(test_data[index][:, 1]) >= max_steps
+				error("ERROR: case robot start: $(r_start), replicate $(j) unable to find the source after $(max_steps) steps.")
+			end
 		end
 	end
 
-	batch_data = Dict("batch" => test_data)
-	#save("$(filename).jld2", batch_data)
+	if filename != "none"
+		batch_data = Dict("batch" => test_data)
+		save("$(filename).jld2", batch_data)
+	end
+	
 	return test_data
 end
 
@@ -1784,7 +1790,7 @@ end
 function test_params(
 	rad_sim::RadSim, 
 	robot_starts::Vector{Vector{Int64}}; 
-	exploring_start_steps::Vector{Int64}=[20, 15, 10, 5],
+	exploring_start_steps::Vector{Int64}=[20, 17, 15, 12, 10, 5],
 	r_check_vals::Vector{Float64}=[100.0, 75.0, 50.0, 25.0, 0.0],
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
@@ -1802,6 +1808,7 @@ function test_params(
 )
 
 	data_storage = Dict()
+	times = Dict()
 
 	for (i, expl_step_num) in enumerate(exploring_start_steps)
 		for (j, r_val) in enumerate(r_check_vals)
@@ -1825,7 +1832,9 @@ function test_params(
 				spiral=false,
 				r_check=r_val,
 				r_check_count=r_check_count,
-				meas_time=meas_time
+				num_replicates=num_replicates,
+				meas_time=meas_time,
+				filename="expl_$(expl_step_num)_r_$(r_val)"
 			)
 
 			data_storage["expl_$(expl_step_num)_r_$(r_val)"] = test_batch
@@ -1833,13 +1842,19 @@ function test_params(
 	end
 	save("param_$(filename).jld2", batch_data)
 
-	return data_storage
+	for (name, batch) in data_storage
+		times[name] = [batch[i][end, :]["time"] for i in eachindex(batch)]
+	end
+
+	save("param_times_$(filename).jld2", times)
+	
+	return data_storage, times
 end
 
 # ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
 begin
-	#=
-	some_test_start = [[85, 85]]
+
+	#some_test_start = [[85, 85]]
 	batch_test = run_batch(
 	test_rad_sim_obstructed, 
 	some_test_start, 
@@ -1853,18 +1868,18 @@ begin
 	z_index=1,
 	obstructions=obstructions,
 	exploring_start=true,
-	num_exploring_start_steps=30,
+	num_exploring_start_steps=15,
 	spiral=true,
 	r_check=70.0,
 	r_check_count=10,
 	meas_time=1.0,
 	num_replicates=1,
 	filename="test_batch"
-)=#
+)
 end
 
-# ╔═╡ cfe675f5-7cf0-481e-b9c5-c7ebb3bb71e9
-#simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=15)
+# ╔═╡ c84fc2c3-5d44-49dd-a176-cf7277b4ef30
+length(batch_test[1][:, 1])
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1997,5 +2012,5 @@ end
 # ╟─e75b8aae-8da8-45e8-8405-103f77a3cca6
 # ╠═d0875144-8174-4842-ac84-011f6c82f1b1
 # ╠═73bdc00d-58d7-4a04-a880-7b6f1bfc78e8
+# ╠═c84fc2c3-5d44-49dd-a176-cf7277b4ef30
 # ╠═e5ead52b-c407-400d-9a26-fca9b61556f3
-# ╠═cfe675f5-7cf0-481e-b9c5-c7ebb3bb71e9
