@@ -1694,8 +1694,8 @@ function gen_sample_starts(
 	lhc_samples = LHCoptim(num_samples, 2, 10)[1] .* L /num_samples
 
 	#convert to vectors of grid indicies
-	r_starts = [(floor(Int, lhc_samples[i, 1] / Δx), 
-                 floor(Int, lhc_samples[i, 2] / Δx)) 
+	r_starts = [[floor(Int, lhc_samples[i, 1] / Δx), 
+                 floor(Int, lhc_samples[i, 2] / Δx)]
                  for i in 1:size(lhc_samples, 1)]
 
 	#if obstructions are provided, check to make sure no overlap occurs
