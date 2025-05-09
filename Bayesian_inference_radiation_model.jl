@@ -118,6 +118,7 @@ struct RadSim
     Δz::Float64 #m, the size of each step in the z plane
     Lxy::Float64 #m, the size of the x, y plane... assume square
     Lz::Float64 #m, the size of the z plane
+	x₀::Vector{Float64} #the coordinates of the source
 end
 
 # ╔═╡ 7fcecc0e-f97c-47f7-98db-0da6d6c1811e
@@ -236,7 +237,7 @@ end
 """
 Reads the lines of the simulation data file provided by the radiation team at path: `data_file_path::String` and returns a RadSim data struct.
 """
-function import_data(data_file_path::String)
+function import_data(data_file_path::String; x₀::Vector{Float64}=[250.0, 250.0])
 	#ensure the input is a file.
 	@assert isfile(data_file_path) "$(data_file_path) is not a file!!!"
 
@@ -325,7 +326,8 @@ function import_data(data_file_path::String)
 		matrix_params["Δxy"],
 		matrix_params["Δz"],
 		matrix_params["Lxy"],
-		matrix_params["Lz"]
+		matrix_params["Lz"],
+		x₀
 	)
 	return rad_sim
 end
@@ -610,6 +612,7 @@ function viz_robot_grid(
     ys = zeros(Float64, n_valid)
 
     idx = 1
+	#loop through the grid and add true values to the scatter plot
     for i in 1:size(robot_grid, 1), j in 1:size(robot_grid, 2)
         if robot_grid[j, i, 3] == true
             xs[idx] = robot_grid[i, j, 1]
@@ -642,7 +645,8 @@ function count_Poisson(x::Vector{Float64}, x₀, I)
 	distance = norm(x₀ .- x)
 	attenuation = attenuation_constant(x, x₀)
 	λ = I * Δt * ϵ * (A / (4π * distance^2)) * exp(-attenuation)
-	
+
+	#this piece became necessary as NAN or negative values were being tested by the optimizer causing errors
 	if isnan(λ) || λ < 0
 		return Poisson(0.0)
 	else
@@ -692,7 +696,6 @@ function viz_c_analytical(; res::Int=500, L::Float64=1000.0, x₀::Vector{Float6
 	colorbar_tick_values[1] = 0.0
 	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 	
-	#tick_pos = scale_option_2.(colorbar_tick_values)
 
 	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
 	
@@ -1674,7 +1677,27 @@ md"# Batch Test"
 """
 Simulates the source localization algorithm several times and collects statistical data.
 """
-function run_batch()
+function run_batch(
+	rad_sim::RadSim,
+	num_steps::Int64, 
+	robot_starts::Vector{Vector{Int64}}; 
+	num_mcmc_samples::Int64=150,
+	num_mcmc_chains::Int64=4,
+	I::Float64=I,
+	L::Float64=L,
+	Δx::Float64=Δx,
+	allow_overlap::Bool=false,
+	x₀::Vector{Float64}=[250.0, 250.0],
+	save_chains::Bool=false,
+	z_index::Int=1,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing,
+	exploring_start::Bool=true,
+	num_exploring_start_steps::Int=30,
+	spiral::Bool=true,
+	r_check::Float64=70.0,
+	r_check_count::Int=10,
+	meas_time::Float64=1.0
+)
 
 end
 
