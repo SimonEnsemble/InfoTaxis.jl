@@ -1716,6 +1716,9 @@ end
 # ╔═╡ fd3393e0-9e08-41e6-a6d2-c28743cb1a68
 robot_starts = gen_sample_starts(num_samples=12, obstructions=obstructions)
 
+# ╔═╡ e75b8aae-8da8-45e8-8405-103f77a3cca6
+md"## run batch test"
+
 # ╔═╡ d0875144-8174-4842-ac84-011f6c82f1b1
 """
 Simulates the source localization algorithm several times and collects statistical data.
@@ -1776,6 +1779,35 @@ function run_batch(
 	save("$(filename).jld2", batch_data)
 	return test_data
 end
+
+# ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
+begin
+	some_test_start = [[85, 85]]
+	batch_test = run_batch(
+	test_rad_sim_obstructed, 
+	some_test_start, 
+	num_mcmc_samples=150,
+	num_mcmc_chains=4,
+	I=I,
+	L=L,
+	Δx=Δx,
+	allow_overlap=false,
+	x₀=[250.0, 250.0],
+	z_index=1,
+	obstructions=obstructions,
+	exploring_start=true,
+	num_exploring_start_steps=30,
+	spiral=true,
+	r_check=70.0,
+	r_check_count=10,
+	meas_time=1.0,
+	num_replicates=5,
+	filename="test_batch"
+)
+end
+
+# ╔═╡ cfe675f5-7cf0-481e-b9c5-c7ebb3bb71e9
+
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1905,4 +1937,7 @@ end
 # ╟─0c2d090c-82c8-466d-aea7-140b4422d254
 # ╠═5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
 # ╠═fd3393e0-9e08-41e6-a6d2-c28743cb1a68
+# ╟─e75b8aae-8da8-45e8-8405-103f77a3cca6
 # ╠═d0875144-8174-4842-ac84-011f6c82f1b1
+# ╠═e5ead52b-c407-400d-9a26-fca9b61556f3
+# ╠═cfe675f5-7cf0-481e-b9c5-c7ebb3bb71e9
