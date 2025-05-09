@@ -1816,7 +1816,6 @@ function test_params(
 			test_batch = run_batch(
 				rad_sim,
 				robot_starts,
-				max_steps,
 				num_mcmc_samples=num_mcmc_samples,
 				num_mcmc_chains=num_mcmc_chains,
 				I=I,
