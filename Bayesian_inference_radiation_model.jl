@@ -20,7 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -719,8 +719,8 @@ md"## movement"
 
 # ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
 function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
-    x₁ = Int(floor((pos[1]) / Δx))+1
-    x₂ = Int(floor((pos[2]) / Δx))+1
+    x₁ = Int(floor((pos[1]) / Δx)) + 1
+    x₂ = Int(floor((pos[2]) / Δx)) + 1
     return (x₁, x₂)
 end
 
@@ -1554,9 +1554,7 @@ function simulate(
 				"counts" => c_measurement
 				)
 			)
-	
 		end
-		GC.gc()
 	end
 	# end simulation loop #
 	######################################################
@@ -1573,7 +1571,7 @@ end
 md"## `Example Sim`"
 
 # ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [70, 70]
+start = [99, 99]
 
 # ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
 md"### simulation control"
@@ -1582,9 +1580,9 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 150
+	num_steps_sim = 15
 	#with obstructions
-	num_steps_sim_obst = 150
+	num_steps_sim_obst = 15
 
 	#num of MCMC chains & samples
 	num_mcmc_chain = 4
@@ -1673,6 +1671,51 @@ end
 # ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
 md"# Batch Test"
 
+# ╔═╡ 0c2d090c-82c8-466d-aea7-140b4422d254
+md"## latin hypercube sample starts"
+
+# ╔═╡ 5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
+"""
+Using latin hypercube sampling, generate `num_samples` of pseudo uniformly distributed sample start locations for the robot.
+
+* `num_samples::Int=15` - number of sample start locations.
+* `L::Float64=L` - space size.
+* `Δx::Float64=Δx` - discretization.
+"""
+function gen_sample_starts(
+	;num_samples::Int=15, 
+	L::Float64=L, 
+	Δx::Float64=Δx, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+
+	@assert num_samples < 100 "please limit num_samples to less than 100"
+	#get latin hypercube samples
+	lhc_samples = LHCoptim(num_samples, 2, 10)[1] .* L /num_samples
+
+	#convert to vectors of grid indicies
+	r_starts = [(floor(Int, lhc_samples[i, 1] / Δx), 
+                 floor(Int, lhc_samples[i, 2] / Δx)) 
+                 for i in 1:size(lhc_samples, 1)]
+
+	#if obstructions are provided, check to make sure no overlap occurs
+	if !isnothing(obstructions)
+		for coords in r_starts
+			x₁ = ((coords[1] - 1) * Δx) + 0.5 * Δx
+	    	x₂ = ((coords[2] - 1) * Δx) + 0.5 * Δx
+			#if overlap is found with obstruction, rerun LHC algorithm
+			if !all(obs -> !overlaps([x₁,x₂] , obs), obstructions)
+				return gen_sample_starts(num_samples=num_samples, L=L, Δx=Δx, obstructions=obstructions)
+			end
+		end	
+	end
+
+	return r_starts
+end
+
+# ╔═╡ fd3393e0-9e08-41e6-a6d2-c28743cb1a68
+robot_starts = gen_sample_starts(num_samples=12, obstructions=obstructions)
+
 # ╔═╡ d0875144-8174-4842-ac84-011f6c82f1b1
 """
 Simulates the source localization algorithm several times and collects statistical data.
@@ -1700,6 +1743,9 @@ function run_batch(
 )
 
 end
+
+# ╔═╡ 22a43d8a-b1ef-4eb0-9757-5b3114a83d32
+all(obs -> !overlaps(new_pos, obs), obstructions)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -1826,4 +1872,8 @@ end
 # ╟─a53b3039-eb9e-45aa-914f-034d2a5b6e01
 # ╠═34527801-4098-4ffe-99c0-5abbdd99ee55
 # ╟─40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+# ╟─0c2d090c-82c8-466d-aea7-140b4422d254
+# ╠═5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
+# ╠═fd3393e0-9e08-41e6-a6d2-c28743cb1a68
 # ╠═d0875144-8174-4842-ac84-011f6c82f1b1
+# ╠═22a43d8a-b1ef-4eb0-9757-5b3114a83d32
