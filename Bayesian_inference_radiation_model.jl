@@ -1851,6 +1851,9 @@ function test_params(
 	return data_storage, times
 end
 
+# ╔═╡ c84fc2c3-5d44-49dd-a176-cf7277b4ef30
+robot_starts
+
 # ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
 begin
 
@@ -1877,9 +1880,6 @@ begin
 	filename="test_batch"
 )
 end
-
-# ╔═╡ c84fc2c3-5d44-49dd-a176-cf7277b4ef30
-length(batch_test[1][:, 1])
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
