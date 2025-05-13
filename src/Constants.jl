@@ -27,7 +27,7 @@ using ColorSchemes
 
 	# Locate files for which data needs to be extracted
 	dir_name = "sim_data"
-	data_dir = joinpath(dirname(pwd()), dir_name)
+	data_dir = joinpath(dirname(@__DIR__), dir_name)
 	data_files = [joinpath(data_dir, file) for file in readdir(data_dir)]
 
 	# Turing parameters
