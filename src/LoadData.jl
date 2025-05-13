@@ -1,5 +1,5 @@
 module LoadData
-Constants = include("Constants.jl")
+
 RadModelStructs = include("RadModelStructs.jl")
 
 using .RadModelStructs, LinearAlgebra, SpecialFunctions, DataFrames, StatsBase, Distributions, JLD2, CSV, DelimitedFiles
