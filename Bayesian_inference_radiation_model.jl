@@ -23,8 +23,16 @@ begin
 	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling
 end
 
+# ╔═╡ a03021d8-8de2-4c38-824d-8e0cb571b9f1
+begin
+	LoadData = include(joinpath("src", "LoadData.jl"))
+end
+
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
+
+# ╔═╡ fbcf21be-a0b9-48ba-ab45-6fe4b832bd4f
+@__DIR__
 
 # ╔═╡ 52d76437-0d60-4589-996f-461eecf0d45d
 md"""
@@ -66,6 +74,7 @@ begin
 
 	# Turing parameters
 	I_max = 1e10 #emmissions/s
+	I_min = 1e6
 
 	# robot parameters
 	r_velocity = 5.0 #m/s
@@ -166,10 +175,10 @@ function parse_numpy_csv_file(path::String)
 end
 
 # ╔═╡ 2c959785-6d71-49c6-921a-16e74cb3b43e
-environment = parse_numpy_csv_file(joinpath("csv", "Walls.csv"))
+vac_environment = parse_numpy_csv_file(joinpath("csv", "Walls.csv"))
 
 # ╔═╡ 0fc694a6-f4cf-478d-bd68-9af5f7f4f5b8
-heatmap(environment)
+heatmap(vac_environment)
 
 # ╔═╡ 181c27f4-6830-4c4d-9392-3237564e6cb1
 md"## obstruction data"
@@ -541,7 +550,7 @@ end
 
 # ╔═╡ 00f909f7-86fd-4d8e-8db2-6a587ba5f12d
 begin
-	environment_masked = flood_fill(environment, (250, 250), clearance_radius=5)
+	environment_masked = flood_fill(vac_environment, (250, 250), clearance_radius=5)
 	heatmap(environment_masked)
 end
 
@@ -603,10 +612,7 @@ function generate_robot_grid_matrix(
 end
 
 # ╔═╡ 4bda387f-4130-419c-b9a5-73ffdcc184f9
-grid_env = generate_robot_grid_matrix(environment, 10)
-
-# ╔═╡ 9fd8a427-e590-4134-b77a-bbdd494e5e24
-
+grid_env =  generate_robot_grid_matrix(vac_environment, 10)
 
 # ╔═╡ 560de084-b20b-45d7-816a-c0815f398e6d
 md"""
@@ -866,11 +872,11 @@ md"# Turing MCMC"
 md"## naive rad model"
 
 # ╔═╡ 1e7e4bad-16a0-40ee-b751-b2f3664f6620
-@model function rad_model(data)
+@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L)
 	# source location
-    x₀ ~ filldist(Uniform(0.0, L), 2)
+    x₀ ~ filldist(Uniform(L_min, L_max), 2)
 	# source strength
-	I ~ Uniform(0.0, I_max)
+	I ~ Uniform(I_min, I_max)
 
     for i in 1:nrow(data)
         data[i, "counts"] ~ count_Poisson(data[i, "x [m]"], x₀, I)
@@ -1211,7 +1217,7 @@ viz_data_collection(data, rad_sim=test_rad_sim)
 # ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 begin
 	#
-	prob_model = rad_model(data)
+	prob_model = rad_model(data, L_min=0.0, L_max=L)
 	nb_samples = 4000 # per chain
 	nb_chains = 1      # independent chains
 	chain = DataFrame(
@@ -1230,15 +1236,6 @@ heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
-
-# ╔═╡ f05a7b58-55ac-492c-b0f5-6357cb3e4702
-entropy(chain)
-
-# ╔═╡ 7d51a7f2-b0f9-4840-88e4-d5ff8bc2a7d6
-data[:, "counts"]
-
-# ╔═╡ adfcd50c-18b4-476a-ae6e-d78cee0eda79
-data[:, "counts"]
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -1603,7 +1600,7 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 15
+	num_steps_sim = 150
 	#with obstructions
 	num_steps_sim_obst = 315
 
@@ -1878,7 +1875,7 @@ robot_starts
 # ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
 begin
 
-	#some_test_start = [[85, 85]]
+	#=some_test_start = [[85, 85]]
 	batch_test = run_batch(
 	test_rad_sim_obstructed, 
 	some_test_start, 
@@ -1898,13 +1895,15 @@ begin
 	r_check_count=10,
 	meas_time=1.0,
 	num_replicates=1,
-	filename="test_batch"
+	filename="test_batch"=#
 )
 end
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
+# ╠═a03021d8-8de2-4c38-824d-8e0cb571b9f1
+# ╠═fbcf21be-a0b9-48ba-ab45-6fe4b832bd4f
 # ╟─52d76437-0d60-4589-996f-461eecf0d45d
 # ╟─e5b1369e-0b4b-4da3-9c95-07ceda11b31d
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
@@ -1940,11 +1939,10 @@ end
 # ╠═00f909f7-86fd-4d8e-8db2-6a587ba5f12d
 # ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 # ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
-# ╠═9fd8a427-e590-4134-b77a-bbdd494e5e24
 # ╟─560de084-b20b-45d7-816a-c0815f398e6d
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
-# ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
+# ╠═849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
@@ -1974,9 +1972,7 @@ end
 # ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-# ╠═7d51a7f2-b0f9-4840-88e4-d5ff8bc2a7d6
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
-# ╠═adfcd50c-18b4-476a-ae6e-d78cee0eda79
 # ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
 # ╟─65d603f4-4ef6-4dff-92c1-d6eef535e67e
 # ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
@@ -1990,7 +1986,6 @@ end
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
 # ╟─95837cad-192d-46b4-aaa4-c86e9b1d1c09
 # ╟─8c18d4e8-fd5c-4fd4-8f1e-516615a9e5f0
-# ╠═f05a7b58-55ac-492c-b0f5-6357cb3e4702
 # ╠═ed8381e3-7a83-4afc-a95d-5cbd03b7e852
 # ╟─eafb66bc-6da3-4570-b62a-922627e6ccde
 # ╠═9d0795fa-703e-47a4-8f1e-fe38b9d604b4
