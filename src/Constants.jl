@@ -1,4 +1,7 @@
 module constants
+
+using ColorSchemes
+
 	# size of search space
 	L = 1000.0 # m, assuming space is square
 	Δx = 10.0 # m
