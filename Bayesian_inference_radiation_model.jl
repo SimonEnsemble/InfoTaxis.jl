@@ -566,11 +566,13 @@ function generate_robot_grid_matrix(
 
     # Optionally apply flood fill to exclude disconnected regions
     if mask_outside
-        environment = Int.(flood_fill(environment, 
+        environment_masked = Int.(flood_fill(environment, 
 									  seed, 
 									  clearance_radius=clearance_radius
 									 )
 						  )
+	else
+		environment_masked = environment
     end
     grid_rows = cld(h, step)
     grid_cols = cld(w, step)
@@ -582,30 +584,29 @@ function generate_robot_grid_matrix(
         for j in 1:grid_cols
             y = min((i - 1) * step + 1, h)
             x = min((j - 1) * step + 1, w)
-            valid = environment[y, x] == 0
+            valid = environment_masked[y, x] == 0
             grid[i, j, 1] = x
             grid[i, j, 2] = y
             grid[i, j, 3] = valid
         end
     end
 
-    return grid
+	#store everything in data struct
+	env = Environment(
+		environment,
+		environment_masked,
+		grid,
+		step*1.0
+	)
+
+    return env
 end
 
 # ╔═╡ 4bda387f-4130-419c-b9a5-73ffdcc184f9
-grid = generate_robot_grid_matrix(environment, 10)
+grid_env = generate_robot_grid_matrix(environment, 10)
 
-# ╔═╡ 32cbfa54-56a6-4210-b884-fc91eea99692
-typeof(grid)
+# ╔═╡ 9fd8a427-e590-4134-b77a-bbdd494e5e24
 
-# ╔═╡ 37fc747e-873d-495f-bfda-f8ec32c68a43
-environment_masked
-
-# ╔═╡ 919781d0-f2e8-4bb6-8d2a-776eac742eb9
-environment
-
-# ╔═╡ 2705885e-0af3-4d8a-80a2-796bd2d52fe0
-grid
 
 # ╔═╡ 560de084-b20b-45d7-816a-c0815f398e6d
 md"""
@@ -620,26 +621,25 @@ Visualize the robot search grid over the environment.
 * `robot_grid::Array{<:Any,3}` - The array generated from the `generate_robot_grid_matrix()` function where the first two values are the x and y coordinates of each grid location for the robot search space and the third value is the matrix of boolean values representing accessibility of locations.
 """
 function viz_robot_grid(
-	environment::Matrix{Int}, 
-	robot_grid::Array{<:Any,3}; 
+	environment::Environment; 
 	fig_size::Int=800
 )
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search grid")
 
-    heatmap!(ax, environment; colormap = :grays)
+    heatmap!(ax, environment.masked_env; colormap=:grays)
 
-    n_valid = count(robot_grid[:, :, 3] .== true)
+    n_valid = count(environment.grid[:, :, 3] .== true)
 
     xs = zeros(Float64, n_valid)
     ys = zeros(Float64, n_valid)
 
     idx = 1
 	#loop through the grid and add true values to the scatter plot
-    for i in 1:size(robot_grid, 1), j in 1:size(robot_grid, 2)
-        if robot_grid[j, i, 3] == true
-            xs[idx] = robot_grid[i, j, 1]
-            ys[idx] = robot_grid[i, j, 2]
+    for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
+        if environment.grid[j, i, 3] == true
+            xs[idx] = environment.grid[i, j, 1]
+            ys[idx] = environment.grid[i, j, 2]
             idx += 1
         end
     end
@@ -651,7 +651,7 @@ end
 
 
 # ╔═╡ d47b2021-7129-4a31-8585-2c7257489b1a
-viz_robot_grid(environment, grid)
+viz_robot_grid(grid_env)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -1642,7 +1642,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=15)
+simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=1)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1916,7 +1916,6 @@ end
 # ╠═dd357479-64ef-4823-8aba-931323e89aed
 # ╟─aca647fb-d8c4-4966-a641-3b361295f1e2
 # ╠═2eba07e7-7379-4b2d-bad3-a6f1d52b676e
-# ╠═32cbfa54-56a6-4210-b884-fc91eea99692
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 # ╟─9ac1e08a-cd89-4afb-92d9-2bd973f06aaa
 # ╠═e80af66e-54ab-4661-bd49-89328c17e3d4
@@ -1941,9 +1940,7 @@ end
 # ╠═00f909f7-86fd-4d8e-8db2-6a587ba5f12d
 # ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 # ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
-# ╠═37fc747e-873d-495f-bfda-f8ec32c68a43
-# ╠═919781d0-f2e8-4bb6-8d2a-776eac742eb9
-# ╠═2705885e-0af3-4d8a-80a2-796bd2d52fe0
+# ╠═9fd8a427-e590-4134-b77a-bbdd494e5e24
 # ╟─560de084-b20b-45d7-816a-c0815f398e6d
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
