@@ -121,6 +121,17 @@ struct RadSim
 	x₀::Vector{Float64} #the coordinates of the source
 end
 
+# ╔═╡ aca647fb-d8c4-4966-a641-3b361295f1e2
+md"### environment"
+
+# ╔═╡ 2eba07e7-7379-4b2d-bad3-a6f1d52b676e
+struct Environment
+	env::Matrix{Int64} #unaltered mapped environment from vacuum robot
+	masked_env::Matrix{Int64} #masked environment after flood fill algorith applied
+	grid::Array{Union{Bool, Int64}, 3} #array of patrol grid [x coord, y coord, is_obstructed()]
+	Δ::Float64 #grid spacing
+end
+
 # ╔═╡ 7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 md"""
 # Data Import
@@ -583,6 +594,18 @@ end
 
 # ╔═╡ 4bda387f-4130-419c-b9a5-73ffdcc184f9
 grid = generate_robot_grid_matrix(environment, 10)
+
+# ╔═╡ 32cbfa54-56a6-4210-b884-fc91eea99692
+typeof(grid)
+
+# ╔═╡ 37fc747e-873d-495f-bfda-f8ec32c68a43
+environment_masked
+
+# ╔═╡ 919781d0-f2e8-4bb6-8d2a-776eac742eb9
+environment
+
+# ╔═╡ 2705885e-0af3-4d8a-80a2-796bd2d52fe0
+grid
 
 # ╔═╡ 560de084-b20b-45d7-816a-c0815f398e6d
 md"""
@@ -1582,7 +1605,7 @@ begin
 	# without obstructions
 	num_steps_sim = 15
 	#with obstructions
-	num_steps_sim_obst = 15
+	num_steps_sim_obst = 315
 
 	#num of MCMC chains & samples
 	num_mcmc_chain = 4
@@ -1891,6 +1914,9 @@ end
 # ╠═57478c44-578e-4b53-b656-c9b3c208dec4
 # ╟─03910612-d3fe-481c-bb70-dd5578bd8258
 # ╠═dd357479-64ef-4823-8aba-931323e89aed
+# ╟─aca647fb-d8c4-4966-a641-3b361295f1e2
+# ╠═2eba07e7-7379-4b2d-bad3-a6f1d52b676e
+# ╠═32cbfa54-56a6-4210-b884-fc91eea99692
 # ╟─7fcecc0e-f97c-47f7-98db-0da6d6c1811e
 # ╟─9ac1e08a-cd89-4afb-92d9-2bd973f06aaa
 # ╠═e80af66e-54ab-4661-bd49-89328c17e3d4
@@ -1915,6 +1941,9 @@ end
 # ╠═00f909f7-86fd-4d8e-8db2-6a587ba5f12d
 # ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 # ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
+# ╠═37fc747e-873d-495f-bfda-f8ec32c68a43
+# ╠═919781d0-f2e8-4bb6-8d2a-776eac742eb9
+# ╠═2705885e-0af3-4d8a-80a2-796bd2d52fe0
 # ╟─560de084-b20b-45d7-816a-c0815f398e6d
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
