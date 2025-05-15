@@ -35,5 +35,14 @@ struct Environment
 	Δ::Float64 #grid spacing
 end
 
-export Obstruction, Rectangle, Circle, RadSim, Environment
+mutable struct SpiralController
+    pos::Vector{Float64}
+    directions::Vector{Symbol}
+    dir_idx::Int
+    step_size::Int
+    step_increment::Int
+    leg_count::Int 
+end
+
+export Obstruction, Rectangle, Circle, RadSim, Environment, SpiralController
 end

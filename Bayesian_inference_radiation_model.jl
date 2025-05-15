@@ -20,7 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling, Logging
 end
 
 # ╔═╡ a03021d8-8de2-4c38-824d-8e0cb571b9f1
@@ -30,9 +30,6 @@ end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
-
-# ╔═╡ fbcf21be-a0b9-48ba-ab45-6fe4b832bd4f
-@__DIR__
 
 # ╔═╡ 52d76437-0d60-4589-996f-461eecf0d45d
 md"""
@@ -1000,6 +997,9 @@ function viz_chain_data(chain::DataFrame; res::Float64=800.0, L::Float64=L, show
 	return fig
 end
 
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain)
+
 # ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
 md"## `Visualize` - Turing chain heatmap"
 
@@ -1030,8 +1030,14 @@ function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
 	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
 end
 
+# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+P = chain_to_P(chain)
+
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
 x_bin_centers = edges_to_centers()
+
+# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
 md"## `Visualize` - Posterior"
@@ -1061,6 +1067,9 @@ function viz_posterior(chain::DataFrame)
 	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
 	fig
 end
+
+# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
+viz_posterior(chain)
 
 # ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
 md"# Exploration control"
@@ -1213,29 +1222,6 @@ end
 
 # ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
 viz_data_collection(data, rad_sim=test_rad_sim)
-
-# ╔═╡ e63481a3-a50a-45ae-bb41-9d86c0a2edd0
-begin
-	#
-	prob_model = rad_model(data, L_min=0.0, L_max=L)
-	nb_samples = 4000 # per chain
-	nb_chains = 1      # independent chains
-	chain = DataFrame(
-		sample(prob_model, NUTS(), MCMCSerial(), nb_samples, nb_chains)
-	)
-end
-
-# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain)
-
-# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-P = chain_to_P(chain)
-
-# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
-
-# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
-viz_posterior(chain)
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -1600,9 +1586,9 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 150
+	num_steps_sim = 15
 	#with obstructions
-	num_steps_sim_obst = 315
+	num_steps_sim_obst = 15
 
 	#num of MCMC chains & samples
 	num_mcmc_chain = 4
@@ -1766,6 +1752,7 @@ function run_batch(
 )
 	test_data = Vector{DataFrame}(undef, num_replicates * length(robot_starts))
 	max_steps = 2000
+	Turing.setprogress!(false)
 	for (i, r_start) in enumerate(robot_starts)
 		for j=1:num_replicates
 			#run simulation
@@ -1796,6 +1783,7 @@ function run_batch(
 				error("ERROR: case robot start: $(r_start), replicate $(j) unable to find the source after $(max_steps) steps.")
 			end
 		end
+	    GC.gc()
 	end
 
 	if filename != "none"
@@ -1903,7 +1891,6 @@ end
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
 # ╠═a03021d8-8de2-4c38-824d-8e0cb571b9f1
-# ╠═fbcf21be-a0b9-48ba-ab45-6fe4b832bd4f
 # ╟─52d76437-0d60-4589-996f-461eecf0d45d
 # ╟─e5b1369e-0b4b-4da3-9c95-07ceda11b31d
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
@@ -1969,7 +1956,6 @@ end
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
-# ╠═e63481a3-a50a-45ae-bb41-9d86c0a2edd0
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78

@@ -33,9 +33,9 @@ end
 ##  TURING MCMC
 #############################################################################
 
-@model function rad_model(data)
+@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L)
 	# source location
-    x₀ ~ filldist(Uniform(0.0, L), 2)
+    x₀ ~ filldist(Uniform(L_min, L_max), 2)
 	# source strength
 	I ~ Uniform(I_min, I_max)
 
