@@ -1434,10 +1434,11 @@ function simulate(
 	spiral::Bool=true,
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
-	meas_time::Float64=1.0
+	meas_time::Float64=1.0,
+	disable_log::Bool=true
 )
 	# set up initial position and take measurement
-	x_start = [robot_start[i] * Δx for i=1:2]
+	x_start = [(robot_start[i]-1) * Δx for i=1:2]
 	c_start = sample_model(x_start, rad_sim, I=I, Δx=Δx, z_index=z_index)
 
 	# data storage
@@ -1462,9 +1463,17 @@ function simulate(
 	# simulation loop #
 	for iter = 1:num_steps
 		model = rad_model(sim_data)
-		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
-		)
+		if disable_log
+			Logging.with_logger(NullLogger()) do
+			model_chain = DataFrame(
+				sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+			)
+			end
+		else
+			model_chain = DataFrame(
+				sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+			)
+		end
 		#NUTS(100, 0.65, max_depth=7)
 
 		if save_chains
@@ -1577,7 +1586,7 @@ end
 md"## `Example Sim`"
 
 # ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [99, 99]
+start = [100, 100]
 
 # ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
 md"### simulation control"
@@ -1586,9 +1595,9 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 15
+	num_steps_sim = 40
 	#with obstructions
-	num_steps_sim_obst = 15
+	num_steps_sim_obst = 40
 
 	#num of MCMC chains & samples
 	num_mcmc_chain = 4
@@ -1820,6 +1829,7 @@ function test_params(
 
 	for (i, expl_step_num) in enumerate(exploring_start_steps)
 		for (j, r_val) in enumerate(r_check_vals)
+			@info "beginning test: $(expl_step_num) exploring steps and radius value $(r_val)"
 			index = (i - 1) * length(r_check_vals) + j
 			test_batch = run_batch(
 				rad_sim,
@@ -1863,10 +1873,11 @@ robot_starts
 # ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
 begin
 
-	#=some_test_start = [[85, 85]]
+	#=some_test_start = [[85, 85]]=#
+	#=
 	batch_test = run_batch(
 	test_rad_sim_obstructed, 
-	some_test_start, 
+	robot_starts, 
 	num_mcmc_samples=150,
 	num_mcmc_chains=4,
 	I=I,
@@ -1882,9 +1893,8 @@ begin
 	r_check=70.0,
 	r_check_count=10,
 	meas_time=1.0,
-	num_replicates=1,
-	filename="test_batch"=#
-)
+	num_replicates=10,
+	filename="test_batch")=#
 end
 
 # ╔═╡ Cell order:
@@ -1985,7 +1995,7 @@ end
 # ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
-# ╠═76bc6fcb-0018-40dd-9709-65bf9d223615
+# ╟─76bc6fcb-0018-40dd-9709-65bf9d223615
 # ╠═4c2ba203-95c5-4885-88ed-df9f79f12db4
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 # ╟─ff90c961-70df-478a-9537-5b48a3ccbd5a
