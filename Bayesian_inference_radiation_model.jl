@@ -1181,6 +1181,24 @@ md"# Thompson sampling"
 # ╔═╡ f55544f3-413d-44c5-8e81-37a5f017b460
 md"## Thompson sampling"
 
+# ╔═╡ 33b42a2a-cc2b-497e-b1e1-a79b485d822b
+
+
+# ╔═╡ 18e434c5-384a-496d-9aa5-bd0dd82e6294
+
+
+# ╔═╡ 18fc83ea-f604-41fe-965c-5f8aedbca1b8
+
+
+# ╔═╡ a7353533-653d-484c-8209-bf23b63149a1
+grid_env
+
+# ╔═╡ 54d83783-4eeb-45ed-9324-75053d4d21de
+argmin(abs.(grid_env.grid[1, :, 1] .- 100))
+
+# ╔═╡ 380a6873-2950-4930-8d6b-fb98e55252de
+grid_env.grid[:, 1, 2]
+
 # ╔═╡ 76bc6fcb-0018-40dd-9709-65bf9d223615
 md"### building overlap functions"
 
@@ -2067,6 +2085,12 @@ test_params(
 # ╟─bb94ce77-d48c-4f6d-b282-96197d6e7b6b
 # ╟─f55544f3-413d-44c5-8e81-37a5f017b460
 # ╠═a2154322-23de-49a6-9ee7-2e8e33f8d10c
+# ╠═33b42a2a-cc2b-497e-b1e1-a79b485d822b
+# ╠═18e434c5-384a-496d-9aa5-bd0dd82e6294
+# ╠═18fc83ea-f604-41fe-965c-5f8aedbca1b8
+# ╠═a7353533-653d-484c-8209-bf23b63149a1
+# ╠═54d83783-4eeb-45ed-9324-75053d4d21de
+# ╠═380a6873-2950-4930-8d6b-fb98e55252de
 # ╟─76bc6fcb-0018-40dd-9709-65bf9d223615
 # ╠═4c2ba203-95c5-4885-88ed-df9f79f12db4
 # ╠═8b98d613-bf62-4b2e-9bda-14bbf0de6e99
