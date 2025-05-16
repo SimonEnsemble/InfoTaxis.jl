@@ -74,8 +74,9 @@ begin
 	I_max = 1e10 #emmissions/s
 	I_min = 1e6
 
-	# robot parameters
+	# robot/environment parameters
 	r_velocity = 5.0 #m/s
+	λ_background = 1.5 #Poisson distr lambda val for noise
 
 end
 
@@ -745,6 +746,12 @@ md"## sample environment"
 md"## movement"
 
 # ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
+"""
+Given the grid spacing, provides an index given the provided position vector.
+
+* `pos::Vector{Float64}` - current position for which you want the corresponding index.
+* `Δx::Float64=10.0` - grid spacing.
+"""
 function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
     x₁ = Int(floor((pos[1]) / Δx)) + 1
     x₂ = Int(floor((pos[2]) / Δx)) + 1
@@ -752,12 +759,20 @@ function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
 end
 
 # ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
+"""
+Given the current position and radiation simulation model, samples the model by pulling the value from the radiation simulation and adding some noise.
+
+* `x::Vector{Float64}` - current position for which you are sampling the model.
+* `rad_sim` - the radiation simulation RadSim struct containing the simulation data.
+* `I::Float64=I` - source strength.
+* `Δx::Float64=Δx` - grid spacing.
+* `z_index::Int=1` - 1 is the ground floor index of the set of 2-D simulation slices.
+"""
 function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Float64=Δx, z_index::Int=1)
 	counts_I = I * rad_sim.γ_matrix[z_index]
 	@assert count([round(Int, x[i] / Δx) <= size(counts_I, i) && x[i] >= 0.0 for i=1:2]) == 2 "r coordinate values outside of domain"
 
 	#add background noise
-	λ_background = 1.5
 	noise = rand(Poisson(λ_background)) * rand([-1, 1])
 
 	#get index from position
@@ -769,6 +784,12 @@ function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Fl
 end
 
 # ╔═╡ c6c39d74-4620-43df-8eb1-83c436924530
+"""
+Converts a direction to a vector represnetation of movement.
+
+* `direction::Symbol` - :up, :down, :left, or :right
+* `Δx::Float64=Δx` - grid spacing value.
+"""
 function get_Δ(direction::Symbol; Δx::Float64=Δx)
 		if direction == :left
 			Δ = [-Δx, 0.0]
@@ -786,10 +807,18 @@ function get_Δ(direction::Symbol; Δx::Float64=Δx)
 end
 
 # ╔═╡ 3c0f8b63-6276-488c-a376-d5c554a5555d
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
-		Δ = get_Δ(direction, Δx=Δx)
-		push!(robot_path, robot_path[end] + Δ)
-	end
+"""
+Moves the robot once in the direction provided according to the `Δx` spacing value.
+
+* `robot_path::Vector{Vector{Float64}}` - current robot path.
+* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
+
+* `Δx::Float64=Δx` - grid spacing value.
+"""
+function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
+	Δ = get_Δ(direction, Δx=Δx)
+	push!(robot_path, robot_path[end] + Δ)
+end
 
 # ╔═╡ de738002-3e80-4aab-bedb-f08533231ed7
 md"## `Visualize` - Movement and Measurement"
@@ -830,6 +859,9 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Real=1e6, show_lines::Bo
 
 	return sc
 end
+
+# ╔═╡ 80b858b7-3aa2-4c85-987e-291a1b147486
+
 
 # ╔═╡ 50832f87-c7eb-4418-9864-0f807a16e7a7
 md"## Spiral movement"
@@ -998,9 +1030,6 @@ function viz_chain_data(chain::DataFrame; res::Float64=800.0, L::Float64=L, show
 	return fig
 end
 
-# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain)
-
 # ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
 md"## `Visualize` - Turing chain heatmap"
 
@@ -1031,14 +1060,8 @@ function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
 	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
 end
 
-# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-P = chain_to_P(chain)
-
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
 x_bin_centers = edges_to_centers()
-
-# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
 md"## `Visualize` - Posterior"
@@ -1068,9 +1091,6 @@ function viz_posterior(chain::DataFrame)
 	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
 	fig
 end
-
-# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
-viz_posterior(chain)
 
 # ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
 md"# Exploration control"
@@ -1177,7 +1197,19 @@ begin
 end
 
 # ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
-	function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
+"""
+Moves the robot `n` times in a single direction by altering the robot path.
+
+* `robot_path::Vector{Vector{Float64}}` - current robot path.
+* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
+* `n::Int` - the number of times to move.
+
+* `Δx::Float64=Δx` - grid spacing value.
+* `one_step::Bool=false` - set to true to move n spaces in one big step (instead of stoping at each Δx to collect data)
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - the vector of obstruction objects.
+* `L::Float64=1000.0` - size of the grid space.
+"""
+function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
 		if one_step
 			pos = copy(robot_path[end])
    			Δ = get_Δ(direction; Δx=Δx)
@@ -1223,6 +1255,23 @@ end
 
 # ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
 viz_data_collection(data, rad_sim=test_rad_sim)
+
+# ╔═╡ 13ff8f6a-7bb2-41a0-83ac-7c9fca962605
+chain = DataFrame(
+	sample(rad_model(data), NUTS(), MCMCThreads(), 500, 2)
+)
+
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain)
+
+# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
+P = chain_to_P(chain)
+
+# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+heatmap(x_bin_centers, x_bin_centers, P)
+
+# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
+viz_posterior(chain)
 
 # ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
 """
@@ -1377,6 +1426,7 @@ function thompson_sampling(
 		end
 	end
 
+	#if we can't find any direction at allow and overlap isn't allowed, redo w/ overlap
 	if best_direction == :nothing && allow_overlap == false
 		@warn "best direction == nothing, switching to allow overlap"
 		return thompson_sampling(
@@ -1635,7 +1685,7 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 md"## `Example Sim` - with obstructions"
 
 # ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=1)
+simulation_data_obst, simulation_chains_obst = SimulationSpace.simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=1)
 
 # ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
 simulation_chains_obst
@@ -1805,6 +1855,13 @@ function run_batch(
 end
 
 # ╔═╡ 73bdc00d-58d7-4a04-a880-7b6f1bfc78e8
+"""
+Test a series of hyperparameters using batch mode over latin hypercube sampled start locations replicated `num_replicates` times.
+
+This will take a long time as there will be a lot of simulations. For example, with 100 replicates, 6 different `exploring_start_steps` options, 5 `r_check` value options, and 12 latin hypercube sample start locations... will end up running simulate 100 * 6 * 5 * 12 = 36000 times.
+
+each batch will be saved and named by the parameter values.
+"""
 function test_params(
 	rad_sim::RadSim, 
 	robot_starts::Vector{Vector{Int64}}; 
@@ -1968,6 +2025,7 @@ test_params(
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
 # ╠═9fbe820c-7066-40b5-9617-44ae0913928e
+# ╠═80b858b7-3aa2-4c85-987e-291a1b147486
 # ╟─50832f87-c7eb-4418-9864-0f807a16e7a7
 # ╠═7d0e24e2-de5b-448c-8884-4d407ead1319
 # ╠═22652624-e2b7-48e9-bfa4-8a9473568f9d
@@ -1975,6 +2033,7 @@ test_params(
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
+# ╠═13ff8f6a-7bb2-41a0-83ac-7c9fca962605
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78

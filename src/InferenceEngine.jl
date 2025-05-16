@@ -9,6 +9,12 @@ using .Constants, .RadModelStructs, LinearAlgebra, Turing, SpecialFunctions, Dat
 ##  ANALYTICAL (POISSON) MODEL
 #############################################################################
 
+function attenuation_constant(x::Vector{Float64}, x₀; Σ::Float64=Σ_air)
+    distance = norm(x .- x₀)
+    return exp(-Σ * distance)
+end
+
+
 """
 Generates a Poisson distribution based on position, source position and source strength.
 
@@ -46,4 +52,5 @@ end
     return nothing
 end
 
+export rad_model, count_Poisson
 end
