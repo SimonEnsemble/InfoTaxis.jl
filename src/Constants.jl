@@ -1,4 +1,4 @@
-module constants
+module Constants
 
 using ColorSchemes
 
@@ -34,6 +34,9 @@ using ColorSchemes
 	I_max = 5e10 #emmissions/s
     I_min = 5e4 #emmissions/s
 
-	# robot parameters
+	# robot, environment parameters
 	r_velocity = 5.0 #m/s
+    λ_background = 1.5 #Poisson distr lambda val for noise
+
+    export  λ_background, r_velocity, I_min, I_max, data_files, data_dir, dir_name, colormap, L, Δx, Σ_air, ϵ, Δt, A, x₀, P_γ, Σ, mCi, I
 end

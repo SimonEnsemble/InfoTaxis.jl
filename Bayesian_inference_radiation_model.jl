@@ -25,7 +25,8 @@ end
 
 # ╔═╡ a03021d8-8de2-4c38-824d-8e0cb571b9f1
 begin
-	LoadData = include(joinpath("src", "LoadData.jl"))
+	SimulationSpace = include(joinpath("src", "SimulationSpace.jl"))
+	RadModelStructs = include(joinpath("src", "RadModelStructs.jl"))
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -207,6 +208,49 @@ begin
 	obstructions = [wide_rect, square, cylinder]
 end
 
+# ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
+"""
+Helper function used by `import_data()` to convert the dictionary read from the text file into dictionary containing the components necessary to make a RadSim struct.
+"""
+function get_matrix_params(data::Dict)
+
+	parameters = Dict()
+
+	#Δx,y and L parameters
+	Δxy = data["y_bin_bounds"][2] - data["y_bin_bounds"][1]
+	parameters["Δxy"] = Δxy
+	Δz = data["z_bin_bounds"][2] - data["z_bin_bounds"][1]
+	parameters["Δz"] = Δz 
+	parameters["Lxy"] = (length(data["x_bin_bounds"])-1) * Δxy
+	parameters["Lz"] = (length(data["z_bin_bounds"])-1) * Δz
+
+	#assert square grid
+	@assert Δxy == data["x_bin_bounds"][2] - data["x_bin_bounds"][1] "x and y should have the same grid spacing!"
+	
+
+	norm_gamma_matrix = zeros(length(data["x_bin_bounds"])-1,
+							 length(data["y_bin_bounds"])-1,
+							 length(data["z_bin_bounds"])-1
+							 )
+
+
+	for row in eachrow(data["energy_field_data"])
+		x_start = data["x_bin_bounds"][1]
+		y_start = data["y_bin_bounds"][1]
+		z_start = data["z_bin_bounds"][1]
+	    # Compute indices from coordinates
+	    i = Int(round((row["X"] - x_start) / Δxy + 0.5))
+	    j = Int(round((row["Y"] - y_start)  / Δxy + 0.5))
+	    k = Int(round((row["Z"] - z_start)  / Δz + 0.5))
+	
+		norm_gamma_matrix[i, j, k] = row["Result"]
+	end
+
+	parameters["γ_matrix"] = norm_gamma_matrix
+
+	return parameters
+end
+
 # ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
 """
 Reads the lines of the simulation data file provided by the radiation team at path: `data_file_path::String` and returns a RadSim data struct.
@@ -306,49 +350,6 @@ function import_data(data_file_path::String; x₀::Vector{Float64}=[250.0, 250.0
 	return rad_sim
 end
 
-# ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
-"""
-Helper function used by `import_data()` to convert the dictionary read from the text file into dictionary containing the components necessary to make a RadSim struct.
-"""
-function get_matrix_params(data::Dict)
-
-	parameters = Dict()
-
-	#Δx,y and L parameters
-	Δxy = data["y_bin_bounds"][2] - data["y_bin_bounds"][1]
-	parameters["Δxy"] = Δxy
-	Δz = data["z_bin_bounds"][2] - data["z_bin_bounds"][1]
-	parameters["Δz"] = Δz 
-	parameters["Lxy"] = (length(data["x_bin_bounds"])-1) * Δxy
-	parameters["Lz"] = (length(data["z_bin_bounds"])-1) * Δz
-
-	#assert square grid
-	@assert Δxy == data["x_bin_bounds"][2] - data["x_bin_bounds"][1] "x and y should have the same grid spacing!"
-	
-
-	norm_gamma_matrix = zeros(length(data["x_bin_bounds"])-1,
-							 length(data["y_bin_bounds"])-1,
-							 length(data["z_bin_bounds"])-1
-							 )
-
-
-	for row in eachrow(data["energy_field_data"])
-		x_start = data["x_bin_bounds"][1]
-		y_start = data["y_bin_bounds"][1]
-		z_start = data["z_bin_bounds"][1]
-	    # Compute indices from coordinates
-	    i = Int(round((row["X"] - x_start) / Δxy + 0.5))
-	    j = Int(round((row["Y"] - y_start)  / Δxy + 0.5))
-	    k = Int(round((row["Z"] - z_start)  / Δz + 0.5))
-	
-		norm_gamma_matrix[i, j, k] = row["Result"]
-	end
-
-	parameters["γ_matrix"] = norm_gamma_matrix
-
-	return parameters
-end
-
 # ╔═╡ 8ffaf344-1c74-48c8-a116-8c937322cd6e
 md"""
 ## import radiation simulation data
@@ -367,42 +368,6 @@ end
 md"""
 ## `Visualize` - Imported Data
 """
-
-# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-"""
-Visualize simulated radiation data provided by the radiation team.
-
-* `rad_sim::RadSim` - the radiation simulation data structure after being imported.
-* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - optional obstruction data, if provided obstructions will be visualized as teal blocks.
-"""
-function viz_model_data(
-	rad_sim::RadSim; 
-	z_slice::Int64=1, 
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
-)
-	fig = Figure()
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂"
-	)
-
-	#convert normalized gammas to counts
-	counts_I = I * rad_sim.γ_matrix[z_slice]
-	
-	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
-
-	#establish logarithmic colorbar tick values
-	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
-	colorbar_tick_values[1] = 0.0
-	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-
-	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
-	
-	fig
-end
 
 # ╔═╡ 173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 """
@@ -459,6 +424,42 @@ function viz_model_data!(
 	end
 	
 	return hm
+end
+
+# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+"""
+Visualize simulated radiation data provided by the radiation team.
+
+* `rad_sim::RadSim` - the radiation simulation data structure after being imported.
+* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - optional obstruction data, if provided obstructions will be visualized as teal blocks.
+"""
+function viz_model_data(
+	rad_sim::RadSim; 
+	z_slice::Int64=1, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂"
+	)
+
+	#convert normalized gammas to counts
+	counts_I = I * rad_sim.γ_matrix[z_slice]
+	
+	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
+
+	#establish logarithmic colorbar tick values
+	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
 end
 
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
@@ -1156,68 +1157,6 @@ md"# Thompson sampling"
 # ╔═╡ f55544f3-413d-44c5-8e81-37a5f017b460
 md"## Thompson sampling"
 
-# ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
-"""
-Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
-
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `pr_field::Matrix{Float64}` - current posterior for the source location.
-* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
-* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
-* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
-* `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=2.0` - step size of the robot.
-* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
-"""
-function thompson_sampling(
-	robot_path::Vector{Vector{Float64}}, 
-	chain::DataFrame;
-	L::Float64=50.0,
-	Δx::Float64=2.0,
-	allow_overlap::Bool=false,
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing)
-
-	#find direction options from left, right, up, down within domain
-	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap, obstructions=obstructions)
-
-	if length(direction_options) < 1 && allow_overlap == true
-		@warn "found no viable direction options with overlap allowed, returning nothing"
-		return :nothing
-	end
-
-	best_direction = :nothing
-	greedy_dist = Inf
-
-	#randomly sample from the chain
-	rand_θ = chain[rand(1:nrow(chain)), :]
-	loc = robot_path[end]
-
-	#loop through direction options and pick the one leading closest to sample
-	for direction in direction_options
-		new_loc = loc .+ get_Δ(direction)
-		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
-		if dist < greedy_dist
-			greedy_dist = dist
-			best_direction = direction
-		end
-	end
-
-	if best_direction == :nothing && allow_overlap == false
-		@warn "best direction == nothing, switching to allow overlap"
-		return thompson_sampling(
-			robot_path, 
-			chain,
-			L=L,
-			Δx=Δx,
-			allow_overlap=true,
-			obstructions=obstructions)
-	end
-	
-	return best_direction
-
-end
-
 # ╔═╡ 76bc6fcb-0018-40dd-9709-65bf9d223615
 md"### building overlap functions"
 
@@ -1285,6 +1224,55 @@ end
 # ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
 viz_data_collection(data, rad_sim=test_rad_sim)
 
+# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+"""
+Given the robot path, returns a tuple of optional directions the robot could travel in next.
+
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `L::Float64` - the width/length of the space being explored.
+* `Δx::Float64=10.0` - step size of the robot.
+* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+"""
+function get_next_steps(
+	robot_path::Vector{Vector{Float64}}, 
+	L::Float64; 
+	Δx::Float64=10.0,
+	allow_overlap::Bool=false,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+
+	current_pos = robot_path[end]
+
+	directions = Dict(
+        :up    => [0.0, Δx],
+        :down  => [0.0, -Δx],
+        :left  => [-Δx, 0.0],
+        :right => [Δx, 0.0]
+    )
+
+	last_step = length(robot_path)>1 ? robot_path[end] .- robot_path[end-1] : nothing
+	
+
+	function is_valid(dir)
+		function unit(v)
+		    n = norm(v)
+		    n ≈ 0.0 ? v : v ./ n
+		end
+	    step = directions[dir]
+	    new_pos = current_pos .+ step
+	    in_bounds = all(0.0 .≤ new_pos .≤ L)
+	    dir_unit = unit(step)
+	    last_unit = isnothing(last_step) ? dir_unit : unit(last_step)
+	    not_backtrack = allow_overlap || isnothing(last_step) || dot(dir_unit, last_unit) > -0.9
+	    not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
+	    return in_bounds && not_backtrack && not_blocked
+	end
+
+	return Tuple(filter(is_valid, keys(directions)))
+
+end
+
 # ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
 function step_spiral!(
     sc::SpiralController,
@@ -1342,52 +1330,65 @@ function step_spiral!(
     return copy(sc.pos)
 end
 
-# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
 """
-Given the robot path, returns a tuple of optional directions the robot could travel in next.
+Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
 
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `pr_field::Matrix{Float64}` - current posterior for the source location.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
+* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
+* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 * `L::Float64` - the width/length of the space being explored.
-* `Δx::Float64=10.0` - step size of the robot.
-* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+* `Δx::Float64=2.0` - step size of the robot.
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 * `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
 """
-function get_next_steps(
+function thompson_sampling(
 	robot_path::Vector{Vector{Float64}}, 
-	L::Float64; 
-	Δx::Float64=10.0,
+	chain::DataFrame;
+	L::Float64=50.0,
+	Δx::Float64=2.0,
 	allow_overlap::Bool=false,
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
-)
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing)
 
-	current_pos = robot_path[end]
+	#find direction options from left, right, up, down within domain
+	direction_options = get_next_steps(robot_path, L, allow_overlap=allow_overlap, obstructions=obstructions)
 
-	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
-    )
-
-	last_step = length(robot_path)>1 ? robot_path[end] .- robot_path[end-1] : nothing
-	
-
-	function is_valid(dir)
-		function unit(v)
-		    n = norm(v)
-		    n ≈ 0.0 ? v : v ./ n
-		end
-	    step = directions[dir]
-	    new_pos = current_pos .+ step
-	    in_bounds = all(0.0 .≤ new_pos .≤ L)
-	    dir_unit = unit(step)
-	    last_unit = isnothing(last_step) ? dir_unit : unit(last_step)
-	    not_backtrack = allow_overlap || isnothing(last_step) || dot(dir_unit, last_unit) > -0.9
-	    not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
-	    return in_bounds && not_backtrack && not_blocked
+	if length(direction_options) < 1 && allow_overlap == true
+		@warn "found no viable direction options with overlap allowed, returning nothing"
+		return :nothing
 	end
 
-	return Tuple(filter(is_valid, keys(directions)))
+	best_direction = :nothing
+	greedy_dist = Inf
+
+	#randomly sample from the chain
+	rand_θ = chain[rand(1:nrow(chain)), :]
+	loc = robot_path[end]
+
+	#loop through direction options and pick the one leading closest to sample
+	for direction in direction_options
+		new_loc = loc .+ get_Δ(direction)
+		dist = norm([rand_θ["x₀[1]"]-new_loc[1], rand_θ["x₀[2]"]-new_loc[2]])
+		if dist < greedy_dist
+			greedy_dist = dist
+			best_direction = direction
+		end
+	end
+
+	if best_direction == :nothing && allow_overlap == false
+		@warn "best direction == nothing, switching to allow overlap"
+		return thompson_sampling(
+			robot_path, 
+			chain,
+			L=L,
+			Δx=Δx,
+			allow_overlap=true,
+			obstructions=obstructions)
+	end
+	
+	return best_direction
 
 end
 
@@ -1898,10 +1899,12 @@ begin
 end
 
 # ╔═╡ 5e5bf646-0a05-4405-8563-86abe65d6fca
+#=
 test_params(
 	test_rad_sim, 
 	robot_starts,
 	filename="no_obstructions")
+=#
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
