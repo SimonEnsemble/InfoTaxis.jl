@@ -193,7 +193,7 @@ end
 ##  THOMPSON SAMPLING
 #############################################################################
 """
-Given the robot path, finds the best next direction the robot to travel using the infotaxis metrix.
+Given the robot path, finds the best next direction the robot to travel using Thompson sampling of the posterior.
 
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
 * `pr_field::Matrix{Float64}` - current posterior for the source location.
