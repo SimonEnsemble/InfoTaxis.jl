@@ -311,6 +311,12 @@ Runs a simulation by placing a robot, calculating a posterior, sampling the post
 * `save_chains::Bool=false` - set to true to save the MCMC simulation chain data for every step.
 * `z_index::Int=1` - sets the current z index of the γ_matrx, for now keep at 1.
 * `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+* `exploring_start::Bool=true` - if set to false, will begin by taking single steps only towards the greedy choice from Thompson sampling, otherwise will take decreasingly large steps.
+* `num_exploring_start_steps::Int=10` - controls the size and number of exploring start steps. For example, a value of 10 will make the robot take 10 steps initially, followed by 9, then 8 etc...
+* `r_check::Float64=70.0` - the radius to check for `r_check_count` number of samples to determine if a large next step should be taken.
+* `r_check_count::Int=10` - the number of samples within radius `r_check` to determine if a large next step should be taken.
+* `meas_time::Float64=1.0` - set the temporal cost of collecting data.
+* `disable_log::Bool=true` - set to false to allow logging by Turing.jl.
 """
 function simulate(
 	rad_sim,
