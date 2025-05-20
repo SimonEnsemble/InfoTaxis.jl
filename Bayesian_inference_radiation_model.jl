@@ -1696,14 +1696,6 @@ function thompson_sampling(
 		@warn "found no viable direction options with overlap allowed, returning nothing"
 		return :nothing
 	end
-	
-	# Direction mappings
-    directions = Dict(
-        :up    => [0, 1],
-        :down  => [0, -1],
-        :left  => [-1, 0],
-        :right => [1, 0]
-    )
 
 	best_direction = :nothing
 	greedy_dist = Inf
@@ -1715,8 +1707,8 @@ function thompson_sampling(
 
     # Loop through each valid direction and calculate distance
     for direction in direction_options
-        Δ = directions[direction]
-        new_location = loc .+ Δ .* environment.Δ  # Apply grid spacing
+        Δ = get_Δ(direction, Δx=environment.Δ)
+        new_location = loc .+ Δ  # Apply grid spacing
 
         # Compute Euclidean distance to the sampled location
         dist = norm(new_location .- target)
@@ -2126,7 +2118,7 @@ Using Thompson sampling and exploration methods, provide the next location where
 * `disable_log::Bool=true` - set to false to allow logging by Turing.jl.
 """
 function get_next_sample(
-	robot_path::Vector{Vector{Float64}}, 
+	data::DataFrame, 
 	environment::Environment;
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
@@ -2141,13 +2133,77 @@ function get_next_sample(
 	r_check_count::Int=10,
 	disable_log::Bool=true
 )
+	#pull robot_path from data
+	robot_path = [row["x [m]"] for row in eachrow(data)]
 
+	#establish Poisson model and calc chains
+	model = rad_model(sim_data)
+	if disable_log
+		Turing.setprogress!(false)
+		Logging.with_logger(NullLogger()) do
+		model_chain = DataFrame(
+			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+		)
+		end
+	else
+		model_chain = DataFrame(
+			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+		)
+	end
 
+	#sample posterior and find the next best dir
+	next_dir = thompson_sampling(
+		robot_path, 
+		environment,
+		model_chain,
+		allow_overlap=allow_overlap
+	)
 
+	#establish a single delta, current_pos and
+	Δ 			= get_Δ(next_dir, Δx=environment.Δ)
+	current_pos = robot_path[end]
 
+	if exploring_start && num_exploring_start_steps - length(robot_path) + 1 > 1
+		steps = num_exploring_start_steps - length(robot_path) + 1
+	else
+		# check how many samples takin within r_check radius
+		num_within_r_check = sum(
+			norm(pos .- robot_path[end]) ≤ r_check for pos in robot_path
+		)
+		num_within_r_check -= 1
+		# if criteria met, move a lot at once
+		steps = num_within_r_check >= r_check_count ? 3 : 1
+	end
 
-	
+	#TODO - check from 1 to # steps in next_dir to see if environment.grid[x_coord, y_coord, 3] == true
+	for step in 1:steps
+        #calc next pos
+        next_pos = current_pos .+ step .* Δ
+        
+        #get grid indicies
+        xs = environment.grid[1, :, 1]
+        ys = environment.grid[:, 1, 2]
+        x_index = argmin(abs.(xs .- next_pos[1]))
+        y_index = argmin(abs.(ys .- next_pos[2]))
 
+		#bound check
+		if !(0 < x_index ≤ size(environment.grid, 1) && 
+			0 < y_index ≤ size(environment.grid, 2))
+            @warn "Next position out of bounds. Stopping traversal."
+            return current_pos
+        end
+
+		#make sure not obstructed
+        if !environment.grid[x_index, y_index, 3]
+            @warn "Encountered an obstruction at step $(step). Stopping traversal."
+            return current_pos
+        end
+
+        current_pos = next_pos
+    end
+
+	#return final valid pos
+    return current_pos
 end
 
 # ╔═╡ Cell order:
