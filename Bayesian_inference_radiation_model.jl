@@ -2409,7 +2409,7 @@ Using Thompson sampling and exploration methods, provide the next location where
 * `r_check_count::Int=10` - the number of samples within radius `r_check` to determine if a large next step should be taken.
 * `disable_log::Bool=true` - set to false to allow logging by Turing.jl.
 # returns
-* `Vector{Float64}` – A 2D coordinate `[x, y]` representing the next location where the robot should collect data. The returned position is chosen based on Thompson sampling from the posterior distribution and adjusted for exploration, while ensuring that the location lies within the accessible search grid and avoids obstructions.
+* `Vector{Float64}` – A 2D coordinate `[x, y]` representing the next location where the robot should collect data next. The returned position is chosen based on Thompson sampling from the posterior distribution and adjusted for exploration, while ensuring that the location lies within the accessible search grid and avoids obstructions.
 
 """
 function get_next_sample(
