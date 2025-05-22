@@ -27,6 +27,7 @@ end
 begin
 	SimulationSpace = include(joinpath("src", "SimulationSpace.jl"))
 	RadModelStructs = include(joinpath("src", "RadModelStructs.jl"))
+	ExperimentSpace = include(joinpath("src", "ExperimentSpace.jl"))
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -882,6 +883,8 @@ Converts a direction to a vector represnetation of movement.
 * `direction::Symbol` - :up, :down, :left, or :right
 # keyword arguments
 * `Δx::Float64=Δx` - grid spacing value.
+# returns
+* `Vector{Float64}` – A 2D vector representing the change in position associated with the given direction. The vector has the form `[Δx, Δy]`, where the magnitude is determined by the `Δx` grid spacing. For example, `:up` returns `[0.0, Δx]`.
 """
 function get_Δ(direction::Symbol; Δx::Float64=Δx)
 		if direction == :left
@@ -1043,6 +1046,9 @@ This model assumes that measured counts at each location follow a Poisson distri
 
     return nothing
 end
+
+# ╔═╡ f57e810f-66cf-43ef-a99a-edef5d9ef772
+
 
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
@@ -2412,7 +2418,7 @@ function get_next_sample(
 	robot_path = [row["x [m]"] for row in eachrow(data)]
 
 	#establish Poisson model and calc chains
-	model = rad_model(sim_data)
+	model = rad_model(data)
 	if disable_log
 		Turing.setprogress!(false)
 		Logging.with_logger(NullLogger()) do
@@ -2549,6 +2555,12 @@ sim_exp(10, grid_env)
 # ╔═╡ 965d2f34-e385-490e-ab13-f4e37fdf5f58
 grid_env
 
+# ╔═╡ 820b239e-be3b-432e-8b77-3049f943c786
+data
+
+# ╔═╡ 5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
+ExperimentSpace.get_next_sample(data, grid_env)
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
@@ -2622,6 +2634,7 @@ grid_env
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
+# ╠═f57e810f-66cf-43ef-a99a-edef5d9ef772
 # ╠═13ff8f6a-7bb2-41a0-83ac-7c9fca962605
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
@@ -2696,3 +2709,5 @@ grid_env
 # ╠═c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
 # ╠═83d422e0-54b9-4e06-bace-24366ea5db0b
 # ╠═965d2f34-e385-490e-ab13-f4e37fdf5f58
+# ╠═820b239e-be3b-432e-8b77-3049f943c786
+# ╠═5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
