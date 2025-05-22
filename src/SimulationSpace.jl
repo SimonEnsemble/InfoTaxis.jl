@@ -11,30 +11,46 @@ using .InferenceEngine, .Constants, .RadModelStructs, LinearAlgebra, Turing, Spe
 ##  MOVE & SAMPLE MODEL
 #############################################################################
 """
-Moves the robot once in the direction provided according to the `Δx` spacing value.
+Moves the robot one step in the specified direction according to the grid spacing `Δx`.
 
-* `robot_path::Vector{Vector{Float64}}` - current robot path.
-* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
+This function appends a new position to the robot's path based on the direction and step size. It does not check for obstructions or boundary limits.
 
-* `Δx::Float64=Δx` - grid spacing value.
+# arguments
+* `robot_path::Vector{Vector{Float64}}` - The robot's current path, where the last element is the current position.
+* `direction::Symbol` - Direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
+
+# keyword arguments
+* `Δx::Float64=Δx` - The grid spacing value (movement step size).
+
+# modifies
+* `robot_path` - Updated in-place with one additional position in the given direction.
 """
+
 function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
 	Δ = get_Δ(direction, Δx=Δx)
 	push!(robot_path, robot_path[end] + Δ)
 end
 
 """
-Moves the robot `n` times in a single direction by altering the robot path.
+Moves the robot `n` times in a specified direction by modifying the robot path in-place.
 
-* `robot_path::Vector{Vector{Float64}}` - current robot path.
-* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
-* `n::Int` - the number of times to move.
+This function either performs `n` individual steps or one aggregated movement of `n × Δx`, depending on the `one_step` flag. Movement halts early if it would result in collision with an obstruction or leave the defined environment bounds.
 
-* `Δx::Float64=Δx` - grid spacing value.
-* `one_step::Bool=false` - set to true to move n spaces in one big step (instead of stoping at each Δx to collect data)
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - the vector of obstruction objects.
-* `L::Float64=1000.0` - size of the grid space.
+# arguments
+* `robot_path::Vector{Vector{Float64}}` - The robot's current path, with the last element representing its current position.
+* `direction::Symbol` - The direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
+* `n::Int` - The number of steps to move.
+
+# keyword arguments
+* `Δx::Float64=Δx` - The grid spacing value.
+* `one_step::Bool=false` - If `true`, moves the robot `n` steps in one large movement. If `false`, moves one step at a time, allowing for intermediate checks or measurements.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - Optional list of obstructions; movement will halt if any are encountered.
+* `L::Float64=1000.0` - The length of the square environment; movement outside this boundary is not allowed.
+
+# modifies
+* `robot_path` - Updated in-place with the new robot position(s), depending on movement conditions and the `one_step` setting.
 """
+
 function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions=nothing, L::Float64=1000.0)
 		if one_step
 			pos = copy(robot_path[end])
@@ -65,8 +81,12 @@ function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; �
 """
 Given the grid spacing, provides an index given the provided position vector.
 
+# arguments
 * `pos::Vector{Float64}` - current position for which you want the corresponding index.
+# keyword arguments
 * `Δx::Float64=10.0` - grid spacing.
+# returns
+* `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
 """
 function pos_to_index(pos::Vector{Float64}; Δx::Float64=Δx)
     x₁ = Int(floor((pos[1]) / Δx)) + 1
@@ -77,8 +97,12 @@ end
 """
 Converts a direction to a vector represnetation of movement.
 
+# arguments
 * `direction::Symbol` - :up, :down, :left, or :right
+# keyword arguments
 * `Δx::Float64=Δx` - grid spacing value.
+# returns
+* `Vector{Float64}` – A 2D vector representing the change in position associated with the given direction. The vector has the form `[Δx, Δy]`, where the magnitude is determined by the `Δx` grid spacing. For example, `:up` returns `[0.0, Δx]`.
 """
 function get_Δ(direction::Symbol; Δx::Float64=Δx)
 		if direction == :left
@@ -97,13 +121,21 @@ function get_Δ(direction::Symbol; Δx::Float64=Δx)
 end
 
 """
-Given the current position and radiation simulation model, samples the model by pulling the value from the radiation simulation and adding some noise.
+Given the current position and radiation simulation model, samples the model by pulling the value from the radiation field and adding noise.
 
-* `x::Vector{Float64}` - current position for which you are sampling the model.
-* `rad_sim` - the radiation simulation RadSim struct containing the simulation data.
-* `I::Float64=I` - source strength.
-* `Δx::Float64=Δx` - grid spacing.
-* `z_index::Int=1` - 1 is the ground floor index of the set of 2-D simulation slices.
+This function retrieves the expected count rate at position `x` from the radiation simulation and adds Poisson-distributed background noise. It is used to simulate what a sensor would detect at a given location.
+
+# arguments
+* `x::Vector{Float64}` - The current position `[x, y]` at which the model is sampled.
+* `rad_sim::RadSim` - The radiation simulation object containing gamma flux data and metadata.
+
+# keyword arguments
+* `I::Float64=I` - Source strength (emissions per second).
+* `Δx::Float64=Δx` - Spatial discretization (grid resolution in meters).
+* `z_index::Int=1` - Index of the z-slice in the 3D simulation; `1` corresponds to the ground plane.
+
+# returns
+* `Int` - Simulated measured count value (non-negative), computed from the expected gamma flux at the given position and perturbed with background noise.
 """
 function sample_model(x::Vector{Float64}, rad_sim; I::Float64=Constants.I, Δx::Float64=Δx, z_index::Int=1)
 	counts_I = I * rad_sim.γ_matrix[z_index]
@@ -124,7 +156,18 @@ end
 ##  NEXT STEP CHECKERS
 #############################################################################
 """
-Checker if current position overlaps with an obstruction object.
+Checks whether a 2D position lies within a geometric obstruction.
+
+This function determines whether a point `pos` lies inside a given shape. It currently supports:
+- `Rectangle` objects, defined by center, width, and height (axis-aligned),
+- `Circle` objects, defined by center and radius.
+
+# arguments
+* `pos::Vector{Float64}` - A 2D position `[x, y]` to check for overlap.
+* `shape` - An obstruction, either a `Rectangle` or `Circle`, with appropriate geometric parameters.
+
+# returns
+* `Bool` - `true` if `pos` lies within the specified shape, `false` otherwise.
 """
 function overlaps(pos::Vector{Float64}, shape)
 
@@ -146,11 +189,15 @@ end
 """
 Given the robot path, returns a tuple of optional directions the robot could travel in next.
 
+# arguments
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
 * `L::Float64` - the width/length of the space being explored.
+# keyword arguments
 * `Δx::Float64=10.0` - step size of the robot.
 * `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
 * `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+# returns
+* `Vector{Symbol}` – A list of direction symbols (`:up`, `:down`, `:left`, `:right`) representing valid next moves for the robot based on the current position, grid boundaries, accessibility, and overlap settings. The directions are filtered to avoid backtracking unless `allow_overlap=true`.
 """
 function get_next_steps(
 	robot_path::Vector{Vector{Float64}}, 
@@ -195,15 +242,16 @@ end
 """
 Given the robot path, finds the best next direction the robot to travel using Thompson sampling of the posterior.
 
+# arguments
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `pr_field::Matrix{Float64}` - current posterior for the source location.
 * `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
-* `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
-* `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
 * `L::Float64` - the width/length of the space being explored.
+# keyword arguments
 * `Δx::Float64=2.0` - step size of the robot.
 * `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 * `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+# returns
+* `Symbol` – The best direction for the robot to move next, chosen from `:up`, `:down`, `:left`, or `:right`, based on the Thompson-sampled posterior estimate of the source location. Returns `:nothing` if no valid direction is available and `allow_overlap=true`. If `allow_overlap=false` and no direction is valid, the function retries recursively with `allow_overlap=true`.
 """
 function thompson_sampling(
 	robot_path::Vector{Vector{Float64}}, 
@@ -259,10 +307,12 @@ end
 """
 Using latin hypercube sampling, generate `num_samples` of pseudo uniformly distributed sample start locations for the robot.
 
+# keyword arguments
 * `num_samples::Int=15` - number of sample start locations.
 * `L::Float64=L` - space size.
 * `Δx::Float64=Δx` - discretization.
-* `obstructions=nothing` - vector of obstruction objects, if a starting location ends up inside an obstruction, will resample with the latin hypercube options selected.
+# returns
+* `Vector{Vector{Int}}` – A list of robot starting positions expressed as integer grid indices `[i, j]`. The sample points are generated using Latin Hypercube Sampling (LHS) to ensure pseudo-uniform coverage of the space. If obstructions are provided, all returned points are guaranteed not to overlap with any obstruction region.
 """
 function gen_sample_starts(
 	;num_samples::Int=15, 
@@ -298,8 +348,10 @@ end
 """
 Runs a simulation by placing a robot, calculating a posterior, sampling the posterior using Thompson sampling, then making a single step and repeating `num_steps` times.
 
+# arguments
 * `rad_sim::RadSim` - the radiation simulation RadSim to sample from.
 * `num_steps::Int64` - set the max number of steps to simulate movement.
+# keyword arguments
 * `robot_start::Vector{Int64}=[0, 0]` - the grid indicies for the robot to start the simulation.
 * `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
 * `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
@@ -317,6 +369,13 @@ Runs a simulation by placing a robot, calculating a posterior, sampling the post
 * `r_check_count::Int=10` - the number of samples within radius `r_check` to determine if a large next step should be taken.
 * `meas_time::Float64=1.0` - set the temporal cost of collecting data.
 * `disable_log::Bool=true` - set to false to allow logging by Turing.jl.
+# returns
+* `sim_data::DataFrame` – A DataFrame containing the simulation results. Each row corresponds to a step in the robot's path and includes the following columns:
+  - `"time"` – Cumulative time at each step (including travel and measurement).
+  - `"x [m]"` – 2D position of the robot in meters.
+  - `"counts"` – Measured radiation counts at each location.
+
+* `sim_chains::Dict{Int, DataFrame}` *(only if `save_chains=true`)* – A dictionary mapping each simulation step index to the corresponding MCMC chain output as a DataFrame. Each chain represents the posterior samples for source location and intensity at that step.
 """
 function simulate(
 	rad_sim,
@@ -486,7 +545,35 @@ function simulate(
 end
 
 """
-Simulates the source localization algorithm several times and collects statistical data.
+Simulates the source localization algorithm for multiple starting locations and replicates, returning collected trajectory data for statistical analysis.
+
+For each initial robot position in `robot_starts`, the function runs the localization algorithm `num_replicates` times. Each simulation uses Thompson sampling and MCMC inference to track and approach the radiation source. If a simulation exceeds `max_steps` without locating the source, an error is raised. Results are optionally saved to a JLD2 file.
+
+# arguments
+* `rad_sim::RadSim` – The radiation simulation object used to generate counts from a known source field.
+* `robot_starts::Vector{Vector{Int64}}` – List of grid index locations where each batch of simulations will begin.
+
+# keyword arguments
+* `num_mcmc_samples::Int64=150` – Number of MCMC samples per inference step.
+* `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
+* `I::Float64=I` – Source strength used in the forward model.
+* `L::Float64=L` – Length and width of the square domain being explored.
+* `Δx::Float64=Δx` – Grid spacing and step size of the robot.
+* `allow_overlap::Bool=false` – Whether the robot is allowed to revisit previously visited positions.
+* `x₀::Vector{Float64}=[250.0, 250.0]` – True source location; simulation ends when the robot gets within √(2Δx²).
+* `z_index::Int=1` – z-slice of the γ-matrix to sample from.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions (e.g., rectangles or circles) to avoid.
+* `exploring_start::Bool=true` – Whether the robot begins with exploratory large steps before converging.
+* `num_exploring_start_steps::Int=15` – Initial number of exploratory steps taken in the early phase of the simulation.
+* `spiral::Bool=true` – If true, the robot initially explores using a spiral pattern.
+* `r_check::Float64=70.0` – Radius (in meters) to check how frequently the robot has sampled locally.
+* `r_check_count::Int=10` – Number of samples within `r_check` radius required to trigger coarser movement (i.e., larger step sizes).
+* `meas_time::Float64=1.0` – Measurement time (in seconds) per observation.
+* `num_replicates::Int64=5` – Number of independent replicates to run per starting location.
+* `filename::String="none"` – If not `"none"`, saves all replicate data to a `.jld2` file using the provided filename.
+
+# returns
+* `Vector{DataFrame}` – A list of simulation trajectories, one per replicate, each containing time, position, and counts.
 """
 function run_batch(
 	rad_sim::RadSim, 
@@ -555,11 +642,36 @@ function run_batch(
 end
 
 """
-Test a series of hyperparameters using batch mode over latin hypercube sampled start locations replicated `num_replicates` times.
+Runs a grid of source localization simulations across combinations of hyperparameters to evaluate their impact on performance.
 
-This will take a long time as there will be a lot of simulations. For example, with 100 replicates, 6 different `exploring_start_steps` options, 5 `r_check` value options, and 12 latin hypercube sample start locations... will end up running simulate 100 * 6 * 5 * 12 = 36000 times.
+This function systematically tests combinations of `exploring_start_steps` and `r_check_vals` using the `run_batch` routine for each pair. Each configuration is evaluated over a set of `robot_starts`, with `num_replicates` simulations per starting point. The results are saved using filenames based on the parameter settings, and overall timing metrics are stored separately for analysis.
 
-each batch will be saved and named by the parameter values.
+⚠️ This function can be computationally expensive. For example, 6 `exploring_start_steps` values × 5 `r_check_vals` × 12 start positions × 100 replicates = 36,000 simulations.
+
+# arguments
+* `rad_sim::RadSim` – Radiation simulation object providing the γ-matrix and source behavior.
+* `robot_starts::Vector{Vector{Int64}}` – A list of starting positions (as grid indices) for the robot to begin each replicate.
+
+# keyword arguments
+* `exploring_start_steps::Vector{Int64}=[20, 17, 15, 12, 10, 5]` – Values for the number of initial exploratory steps to test.
+* `r_check_vals::Vector{Float64}=[100.0, 75.0, 50.0, 25.0, 0.0]` – Radii (in meters) to check local sampling density for triggering coarser movement.
+* `num_mcmc_samples::Int64=150` – Number of MCMC samples per inference step.
+* `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
+* `I::Float64=I` – Source strength for the forward model.
+* `L::Float64=L` – Length/width of the square simulation domain.
+* `Δx::Float64=Δx` – Spatial step size for robot movement.
+* `allow_overlap::Bool=false` – Whether the robot can revisit previously visited locations.
+* `x₀::Vector{Float64}=[250.0, 250.0]` – True source location, used to determine stopping condition.
+* `z_index::Int=1` – z-slice of the γ-matrix to simulate from.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions to include in the simulation environment.
+* `r_check_count::Int=10` – Number of samples required within the `r_check` radius to trigger coarser movement.
+* `meas_time::Float64=1.0` – Measurement duration per observation.
+* `num_replicates::Int64=10` – Number of simulation replicates per configuration and start position.
+* `filename::String="batch_1"` – Basename used for output `.jld2` files storing the batch data and timing results.
+
+# returns
+* `data_storage::Dict{String, Vector{DataFrame}}` – Dictionary mapping parameter combinations (e.g., `"expl_15_r_50.0"`) to their corresponding batch of simulation replicates.
+* `times::Dict{String, Vector{Float64}}` – Dictionary mapping the same parameter combinations to the final timestamps of each replicate in the batch.
 """
 function test_params(
 	rad_sim, 

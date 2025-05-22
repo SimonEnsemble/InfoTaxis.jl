@@ -841,6 +841,8 @@ Given the grid spacing, provides an index given the provided position vector.
 * `pos::Vector{Float64}` - current position for which you want the corresponding index.
 # keyword arguments
 * `Δx::Float64=10.0` - grid spacing.
+# returns
+* `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
 """
 function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
     x₁ = Int(floor((pos[1]) / Δx)) + 1
@@ -904,13 +906,19 @@ end
 
 # ╔═╡ 3c0f8b63-6276-488c-a376-d5c554a5555d
 """
-Moves the robot once in the direction provided according to the `Δx` spacing value.
+Moves the robot one step in the specified direction according to the grid spacing `Δx`.
 
-# 1 move arguments
-* `robot_path::Vector{Vector{Float64}}` - current robot path.
-* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
-# 1 move keyword arguments
-* `Δx::Float64=Δx` - grid spacing value.
+This function appends a new position to the robot's path based on the direction and step size. It does not check for obstructions or boundary limits.
+
+# arguments
+* `robot_path::Vector{Vector{Float64}}` – The robot's current path, where the last element is the current position.
+* `direction::Symbol` – Direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
+
+# keyword arguments
+* `Δx::Float64=Δx` – The grid spacing value (movement step size).
+
+# modifies
+* `robot_path` – Updated in-place with one additional position in the given direction.
 """
 function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Float64=Δx)
 	Δ = get_Δ(direction, Δx=Δx)
@@ -1378,17 +1386,23 @@ end
 
 # ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
 """
-Moves the robot `n` times in a single direction by altering the robot path.
+Moves the robot `n` times in a specified direction by modifying the robot path in-place.
 
-# n moves arguments
-* `robot_path::Vector{Vector{Float64}}` - current robot path.
-* `direction::Symbol` - direction to move, must be :up, :down, :left, or :right.
-* `n::Int` - the number of times to move.
-# n moves keyword arguments
-* `Δx::Float64=Δx` - grid spacing value.
-* `one_step::Bool=false` - set to true to move n spaces in one big step (instead of stoping at each Δx to collect data)
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - the vector of obstruction objects.
-* `L::Float64=1000.0` - size of the grid space.
+This function either performs `n` individual steps or one aggregated movement of `n × Δx`, depending on the `one_step` flag. Movement halts early if it would result in collision with an obstruction or leave the defined environment bounds.
+
+# arguments
+* `robot_path::Vector{Vector{Float64}}` – The robot's current path, with the last element representing its current position.
+* `direction::Symbol` – The direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
+* `n::Int` – The number of steps to move.
+
+# keyword arguments
+* `Δx::Float64=Δx` – The grid spacing value.
+* `one_step::Bool=false` – If `true`, moves the robot `n` steps in one large movement. If `false`, moves one step at a time, allowing for intermediate checks or measurements.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions; movement will halt if any are encountered.
+* `L::Float64=1000.0` – The length of the square environment; movement outside this boundary is not allowed.
+
+# modifies
+* `robot_path` – Updated in-place with the new robot position(s), depending on movement conditions and the `one_step` setting.
 """
 function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
 		if one_step
