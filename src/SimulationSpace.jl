@@ -537,11 +537,7 @@ function simulate(
 	######################################################
 
 
-	if save_chains
-		return sim_data, sim_chains
-	else
-		return sim_data
-	end
+	return save_chains ? (sim_data, sim_chains) : sim_data
 end
 
 """

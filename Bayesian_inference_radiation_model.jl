@@ -281,6 +281,14 @@ Reads the lines of the simulation data file provided by the radiation team at pa
 * `data_file_path::String` - the path to the simulation data file.
 # keyword arguments
 * `x₀::Vector{Float64}=[250.0, 250.0]` - the coordinates of the source, this will be stored in the data structure returned by `import_data`.
+# returns
+* `RadSim` – A radiation simulation data structure containing:
+  - `γ_matrix::Vector{Matrix{Float64}}` – A list of 2D matrices (one per z-slice) representing radiation interaction data.
+  - `Δxy::Float64` – Spatial resolution in the x-y plane.
+  - `Δz::Float64` – Spatial resolution along the z-axis.
+  - `Lxy::Float64` – Side length (in meters) of the square x-y plane.
+  - `Lz::Float64` – Total height (in meters) along the z-axis.
+  - `x₀::Vector{Float64}` – The specified source location used in simulation.
 """
 function import_data(data_file_path::String; x₀::Vector{Float64}=[250.0, 250.0])
 	#ensure the input is a file.
@@ -609,6 +617,16 @@ Generates a matrix of locations for a robot to explore of user defined coarsenes
 * `mask_outside::Bool=true` - set to true to use flood fill algorithm (paint bucket) to try and remove inaccessible sections of the map.
 * `seed::Tuple{Int, Int}=(250,250)` - The starting location (indicies) for the paint bucket, this index must point to a 0 such that `env[seed]==0`.
 * `clearance_radius::Int=5` - adjusts the clearance radius of the mask, i.e. thickens the walls.
+# returns
+* `Environment` – A structured environment object containing:
+  - `env::Matrix{Int}` – The original input environment matrix.
+  - `masked_env::Matrix{Int}` – The environment after optional flood fill masking (if `mask_outside=true`).
+  - `grid::Array{Union{Int, Bool}, 3}` – A 3D array representing the robot's coarser sampling grid:
+    - `grid[:, :, 1]` – x-coordinates in the original environment,
+    - `grid[:, :, 2]` – y-coordinates in the original environment,
+    - `grid[:, :, 3]` – boolean values indicating accessibility at each coarse location.
+  - `Δ::Float64` – The spatial resolution (in meters) corresponding to `step`.
+
 """
 function generate_robot_grid_matrix(
 	environment::Matrix{Int}, 
@@ -674,6 +692,8 @@ Visualize the robot search grid over the environment.
 # keyword arguments
 * `fig_size::Int=800` - resolution control.
 * `show_grid::Bool=true` - set to false to remove the grid of robot sampling points from the visual.
+# returns
+* `Figure` – A CairoMakie figure object visualizing the environment with obstructions (in grayscale) and optionally overlaying the robot's valid sampling grid.
 """
 function viz_robot_grid(
 	environment::Environment; 
@@ -725,6 +745,9 @@ Generates a Poisson distribution based on position, source position and source s
 * `x::Vector{Float64}` - Measurement/true value location.
 * `x₀::Vector{Float64}` - source location.
 * `I::Float64` - source strength in Bq.
+# returns
+* `Poisson` – A Poisson distribution object representing the expected radiation counts at location `x`, based on the inverse square law and exponential attenuation from the source at `x₀`. If the computed rate `λ` is invalid (e.g., `NaN` or negative), a zero-rate Poisson distribution is returned instead.
+
 """
 function count_Poisson(x::Vector{Float64}, x₀, I)
 	distance = norm(x₀ .- x)
@@ -2151,12 +2174,7 @@ function simulate(
 	# end simulation loop #
 	######################################################
 
-
-	if save_chains
-		return sim_data, sim_chains
-	else
-		return sim_data
-	end
+	return save_chains ? (sim_data, sim_chains) : sim_data
 end
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
@@ -2516,7 +2534,7 @@ This function begins at a user-specified grid index within the environment and p
 
 # keyword arguments
 * `robot_start::Vector{Int64}=[41, 42]` – The grid indices (i, j) for the robot's starting location in the environment.
-* `num_mcmc_samples::Int64=150` – Number of MCMC samples drawn per inference step.
+* `num_mcmc_samples::Int64=150` – Number of MCMC samples awn per inference step.
 * `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
 * `I::Float64=I` – Source strength used in the forward model.
 * `allow_overlap::Bool=false` – If `false`, the robot avoids revisiting previously visited locations unless no alternatives exist.
@@ -2555,22 +2573,100 @@ function sim_exp(
 	disable_log::Bool=true
 )
 
-	x_start = environment.grid[robot_start[2], robot_start[1], 1]
-	y_start = environment.grid[robot_start[2], robot_start[1], 2]
+    # Get physical start position from environment grid
+    x_start = environment.grid[robot_start[2], robot_start[1], 1]
+    y_start = environment.grid[robot_start[2], robot_start[1], 2]
+    robot_path = [[x_start, y_start]]
 
-	robot_path = [[x_start, y_start]]
+    sim_data = DataFrame(
+        "time" => [meas_time],
+        "x [m]" => [robot_path[end]],
+        "counts" => [0]  # Placeholder for first count
+    )
+    sim_chains = Dict()
 
-	return robot_path
+    if exploring_start
+        expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
+    end
+
+    for iter = 1:num_steps
+        model = rad_model(sim_data)
+
+        if disable_log
+            Turing.setprogress!(false)
+            chain = Logging.with_logger(NullLogger()) do
+                sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+            end
+        else
+            chain = sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+        end
+        model_chain = DataFrame(chain)
+
+        if save_chains
+            sim_chains[iter] = model_chain
+        end
+
+        if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
+            @info "Source found at step $(iter), robot at location $(robot_path[end])"
+            break
+        end
+
+		#get next direction using Thompson sampling
+        next_dir = thompson_sampling(
+            robot_path,
+            environment,
+            model_chain,
+            allow_overlap=allow_overlap
+        )
+
+        if next_dir == :nothing
+            @warn "iteration $(iter) found best_direction to be :nothing"
+            return save_chains ? (sim_data, sim_chains) : sim_data
+        end
+
+        num_within_r_check = sum(norm(pos .- robot_path[end]) <= r_check for pos in robot_path) - 1
+        move_dist = num_within_r_check >= r_check_count ? 3 : 1
+
+        if exploring_start
+            proposed = expl_start_steps[iter]
+            move_dist = proposed > 1 ? proposed : move_dist
+        end
+
+        Δ = get_Δ(next_dir, Δx=environment.Δ)
+        current_pos = robot_path[end]
+
+        for _ in 1:move_dist
+            next_pos = current_pos .+ Δ
+
+            xs = environment.grid[1, :, 1]
+            ys = environment.grid[:, 1, 2]
+            x_index = argmin(abs.(xs .- next_pos[1]))
+            y_index = argmin(abs.(ys .- next_pos[2]))
+
+            if !(0 < x_index <= size(environment.grid, 1) && 0 < y_index <= size(environment.grid, 2))
+                break
+            end
+
+            if !environment.grid[x_index, y_index, 3]
+                break
+            end
+
+            current_pos = next_pos
+        end
+
+        push!(robot_path, current_pos)
+        Δt_travel = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
+        counts = sample_model(robot_path[end], environment, I=I, Δx=environment.Δ)
+
+        push!(sim_data, Dict(
+            "time" => sim_data[end, "time"] + Δt_travel + meas_time,
+            "x [m]" => robot_path[end],
+            "counts" => counts
+        ))
+    end
+
+    return save_chains ? (sim_data, sim_chains) : sim_data
 end
-
-# ╔═╡ 83d422e0-54b9-4e06-bace-24366ea5db0b
-sim_exp(10, grid_env)
-
-# ╔═╡ 965d2f34-e385-490e-ab13-f4e37fdf5f58
-grid_env
-
-# ╔═╡ 820b239e-be3b-432e-8b77-3049f943c786
-data
 
 # ╔═╡ 5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
 ExperimentSpace.get_next_sample(data, grid_env)
@@ -2721,7 +2817,4 @@ ExperimentSpace.get_next_sample(data, grid_env)
 # ╠═5b8c19ce-273a-48e3-9677-f26fb1be9c61
 # ╟─28f3b421-6f09-4b52-a032-f67542b1efab
 # ╠═c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
-# ╠═83d422e0-54b9-4e06-bace-24366ea5db0b
-# ╠═965d2f34-e385-490e-ab13-f4e37fdf5f58
-# ╠═820b239e-be3b-432e-8b77-3049f943c786
 # ╠═5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
