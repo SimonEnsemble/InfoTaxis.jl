@@ -200,7 +200,7 @@ Using Thompson sampling and exploration methods, provide the next location where
 """
 function get_next_sample(
 	data::DataFrame, 
-	environment;
+	environment::Environment;
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
 	I::Float64=Constants.I,
@@ -216,22 +216,26 @@ function get_next_sample(
 )
 	#this is needed for src file where type assertions for structs get weird
 	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
-
+	
 	#pull robot_path from data
 	robot_path = [row["x [m]"] for row in eachrow(data)]
 
+	#get min maxes for search space
+	L_min = 1.0 * minimum(environment.grid[:, :, 1:2])
+	L_max = 1.0 * maximum(environment.grid[:, :, 1:2])
+
 	#establish Poisson model and calc chains
-	model = rad_model(data)
+	model = rad_model(data, L_min=L_min, L_max=L_max)
 	if disable_log
 		Turing.setprogress!(false)
 		Logging.with_logger(NullLogger()) do
 		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false)
 		)
 		end
 	else
 		model_chain = DataFrame(
-			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
+			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false)
 		)
 	end
 
@@ -290,4 +294,179 @@ function get_next_sample(
     return current_pos
 end
 
+#############################################################################
+##  SIMULATION
+#############################################################################
+
+"""
+Runs a source localization simulation in a structured experimental environment defined by a grid.
+
+This function begins at a user-specified grid index within the environment and performs `num_steps` of movement using Thompson sampling-based decision making. It evaluates a probabilistic model at each step, uses MCMC to sample from the posterior, and selects the next location based on sampled target proximity and exploration heuristics. Movement is constrained to accessible grid locations and can optionally avoid previously visited points and obstructions.
+
+# arguments
+* `num_steps::Int64` – The number of movement steps the robot should take in the simulation.
+* `environment::Environment` – The grid-based environment object. This should contain a field `grid` of type `Array{Union{Bool, Int64}, 3}` with x-coordinates, y-coordinates, and accessibility information.
+
+# keyword arguments
+* `robot_start::Vector{Int64}=[41, 42]` – The grid indices (i, j) for the robot's starting location in the environment.
+* `num_mcmc_samples::Int64=150` – Number of MCMC samples awn per inference step.
+* `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
+* `I::Float64=I` – Source strength used in the forward model.
+* `allow_overlap::Bool=false` – If `false`, the robot avoids revisiting previously visited locations unless no alternatives exist.
+* `x₀::Vector{Float64}=[250.0, 250.0]` – True source location; simulation halts early if the robot comes within `Δx` of this location.
+* `save_chains::Bool=false` – If `true`, stores the MCMC chain output at each step for later analysis.
+* `exploring_start::Bool=true` – If `true`, the robot starts with large exploratory steps before switching to greedy movement.
+* `num_exploring_start_steps::Int=10` – Number of initial large steps before gradually shrinking exploration.
+* `spiral::Bool=false` – If `true`, the robot follows a predefined outward spiral pattern at the beginning instead of Thompson sampling.
+* `meas_time::Float64=1.0` – Measurement duration per observation.
+* `r_check::Float64=70.0` – Radius used to determine local sampling density for adaptive movement scaling.
+* `r_check_count::Int=10` – Number of nearby samples within `r_check` required to trigger coarse movement (larger step sizes).
+* `disable_log::Bool=true` – If `true`, disables logging output from Turing.jl and MCMC sampling.
+
+# returns
+* `sim_data::DataFrame` – A DataFrame containing the simulation results. Each row corresponds to a step in the robot's path and includes the following columns:
+  - `"time"` – Cumulative time at each step (including travel and measurement).
+  - `"x [m]"` – 2D position of the robot in meters.
+  - `"counts"` – Measured radiation counts at each location.
+
+* `sim_chains::Dict{Int, DataFrame}` *(only if `save_chains=true`)* – A dictionary mapping each simulation step index to the corresponding MCMC chain output as a DataFrame. Each chain represents the posterior samples for source location and intensity at that step.
+"""
+function sim_exp(
+	num_steps::Int64, 
+	environment;
+	robot_start::Vector{Int64}=[41, 43],
+	num_mcmc_samples::Int64=150,
+	num_mcmc_chains::Int64=4,
+	I::Float64=I,
+	allow_overlap::Bool=false,
+	x₀::Vector{Float64}=[250.0, 250.0],
+	save_chains::Bool=false,
+	exploring_start::Bool=true,
+	num_exploring_start_steps::Int=1,
+	spiral::Bool=false,
+	meas_time::Float64=1.0,
+	r_check::Float64=70.0,
+	r_check_count::Int=10,
+	disable_log::Bool=true
+)
+	#this is needed for src file where type assertions for structs get weird
+	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
+
+    # Get physical start position from environment grid
+    x_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 1]
+    y_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 2]
+    robot_path = [[x_start, y_start]]
+
+	#get min maxes for search space
+	L_min = 1.0 * minimum(environment.grid[:, :, 1:2])
+	L_max = 1.0 * maximum(environment.grid[:, :, 1:2])
+
+	#Sample analytical model at start location with noise
+	#get the distr and take the mean
+	sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
+	#add some noise
+	noise = rand(Poisson(λ_background)) * rand([-1, 1])
+	#ensure positive integer
+	start_sample = round(Int, max(sample_mean + noise, 0))
+
+    sim_data = DataFrame(
+        "time" => [meas_time],
+        "x [m]" => [robot_path[end]],
+        "counts" => [start_sample] 
+    )
+    sim_chains = Dict()
+
+	#set up exploring starts
+    if exploring_start
+        expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
+    end
+
+	if disable_log
+		Turing.setprogress!(false)
+	end
+
+	######################################################
+	# simulation loop #
+    for iter = 1:num_steps
+        model = rad_model(sim_data, L_min=L_min, L_max=L_max)
+
+        if disable_log
+            chain = Logging.with_logger(NullLogger()) do
+                sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false)
+            end
+        else
+            chain = sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false)
+        end
+        model_chain = DataFrame(chain)
+
+        if save_chains
+            sim_chains[iter] = model_chain
+        end
+
+        if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
+            @info "Source found at step $(iter), robot at location $(robot_path[end])"
+            break
+        end
+
+		#get next direction using Thompson sampling
+        next_dir = thompson_sampling(
+            robot_path,
+            environment,
+            model_chain,
+            allow_overlap=allow_overlap
+        )
+
+        if next_dir == :nothing
+            @warn "iteration $(iter) found best_direction to be :nothing"
+            return save_chains ? (sim_data, sim_chains) : sim_data
+        end
+
+        num_within_r_check = sum(norm(pos .- robot_path[end]) <= r_check for pos in robot_path) - 1
+        move_dist = num_within_r_check >= r_check_count ? 3 : 1
+
+        if exploring_start
+            proposed = expl_start_steps[iter]
+            move_dist = proposed > 1 ? proposed : move_dist
+        end
+
+        Δ = get_Δ(next_dir, Δx=environment.Δ)
+        current_pos = robot_path[end]
+
+        for _ in 1:move_dist
+            next_pos = current_pos .+ Δ
+
+            xs = environment.grid[1, :, 1]
+            ys = environment.grid[:, 1, 2]
+            x_index = argmin(abs.(xs .- next_pos[1]))
+            y_index = argmin(abs.(ys .- next_pos[2]))
+
+            if !(0 < x_index <= size(environment.grid, 1) && 0 < y_index <= size(environment.grid, 2))
+                break
+            end
+
+            if !environment.grid[x_index, y_index, 3]
+                break
+            end
+
+            current_pos = next_pos
+        end
+
+        push!(robot_path, current_pos)
+        Δt_travel = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
+
+        # Sample model at new location with noise from analytical model
+        sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
+        noise = rand(Poisson(λ_background)) * rand([-1, 1])
+        counts = round(Int, max(sample_mean + noise, 0))
+
+        push!(sim_data, Dict(
+            "time" => sim_data[end, "time"] + Δt_travel + meas_time,
+            "x [m]" => robot_path[end],
+            "counts" => counts
+        ))
+    end
+	######################################################
+
+    return save_chains ? (sim_data, sim_chains) : sim_data
+end
 end
