@@ -822,7 +822,7 @@ Given the grid spacing, provides an index given the provided position vector.
 # returns
 * `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
 """
-function pos_to_index(pos::Vector{Float64}; Δx::Float64=10.0)
+function pos_to_index(pos::AbstractVector{<:Real}; Δx::Real=10.0)
     x₁ = Int(floor((pos[1]) / Δx)) + 1
     x₂ = Int(floor((pos[2]) / Δx)) + 1
     return (x₁, x₂)
@@ -1020,9 +1020,20 @@ This model assumes that measured counts at each location follow a Poisson distri
 # returns
 * A `Turing.Model` object which can be used for sampling the posterior of the source parameters.
 """
-@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L)
+@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L, environment=nothing)
 	# source location
     x₀ ~ filldist(Uniform(L_min, L_max), 2)
+
+	if !isnothing(environment)
+	    # soft rejection for inaccessible locations
+	    idx = pos_to_index(x₀; Δx=environment.Δ)
+	    is_valid = 1 ≤ idx[1] ≤ size(environment.grid, 1) &&
+	               1 ≤ idx[2] ≤ size(environment.grid, 2) &&
+	               environment.grid[idx[1], idx[2], 3] == true
+	
+	    Turing.@addlogprob! is_valid ? 0.0 : -Inf
+	end
+	
 	# source strength
 	I ~ Uniform(I_min, I_max)
 
@@ -1032,9 +1043,6 @@ This model assumes that measured counts at each location follow a Poisson distri
 
     return nothing
 end
-
-# ╔═╡ f57e810f-66cf-43ef-a99a-edef5d9ef772
-
 
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
@@ -2496,10 +2504,10 @@ function get_next_sample(
 	L_max = 1.0 * maximum(environment.grid[:, :, 1:2])
 
 	#establish Poisson model and calc chains
-	model = rad_model(data, L_min=L_min, L_max=L_max)
+	model = rad_model(data, L_min=L_min, L_max=L_max, environment=environment)
 	if disable_log
-		Turing.setprogress!(false)
 		Logging.with_logger(NullLogger()) do
+			Turing.setprogress!(false)
 		model_chain = DataFrame(
 			sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false)
 		)
@@ -2549,13 +2557,13 @@ function get_next_sample(
 		if !(0 < x_index ≤ size(environment.grid, 1) && 
 			0 < y_index ≤ size(environment.grid, 2))
             @warn "Next position out of bounds. Stopping traversal."
-            return current_pos
+            return save_chains ? (current_pos, model_chain) : current_pos
         end
 
 		#make sure not obstructed
         if !environment.grid[x_index, y_index, 3]
             @warn "Encountered an obstruction at step $(step). Stopping traversal."
-            return current_pos
+            return save_chains ? (current_pos, model_chain) : current_pos
         end
 
         current_pos = next_pos
@@ -2569,6 +2577,7 @@ end
 md"## experiment sim"
 
 # ╔═╡ c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
+#=
 """
 Runs a source localization simulation in a structured experimental environment defined by a grid.
 
@@ -2659,7 +2668,7 @@ function sim_exp(
 	######################################################
 	# simulation loop #
     for iter = 1:num_steps
-        model = rad_model(sim_data, L_min=L_min, L_max=L_max)
+        model = rad_model(sim_data, L_min=L_min, L_max=L_max, environment=environment)
 
         if disable_log
             chain = Logging.with_logger(NullLogger()) do
@@ -2740,9 +2749,133 @@ function sim_exp(
 
     return save_chains ? (sim_data, sim_chains) : sim_data
 end
+=#
+
+# ╔═╡ 195b34df-026e-4c02-86c5-7a21c689869f
+"""
+Runs a source localization simulation in a structured experimental environment defined by a grid.
+
+This function begins at a user-specified grid index within the environment and performs `num_steps` of movement using Thompson sampling-based decision making. It evaluates a probabilistic model at each step, uses MCMC to sample from the posterior, and selects the next location based on sampled target proximity and exploration heuristics. Movement is constrained to accessible grid locations and can optionally avoid previously visited points and obstructions.
+
+# arguments
+* `num_steps::Int64` – The number of movement steps the robot should take in the simulation.
+* `environment::Environment` – The grid-based environment object. This should contain a field `grid` of type `Array{Union{Bool, Int64}, 3}` with x-coordinates, y-coordinates, and accessibility information.
+
+# keyword arguments
+* `robot_start::Vector{Int64}=[41, 43]` – The grid indices (i, j) for the robot's starting location in the environment.
+* `num_mcmc_samples::Int64=150` – Number of MCMC samples per inference step.
+* `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
+* `I::Float64=I` – Source strength used in the forward model.
+* `allow_overlap::Bool=false` – If `false`, the robot avoids revisiting previously visited locations unless no alternatives exist.
+* `x₀::Vector{Float64}=[250.0, 250.0]` – True source location; simulation halts early if the robot comes within `Δx` of this location.
+* `save_chains::Bool=false` – If `true`, stores the MCMC chain output at each step for later analysis.
+* `exploring_start::Bool=true` – If `true`, the robot starts with large exploratory steps before switching to greedy movement.
+* `num_exploring_start_steps::Int=1` – Number of initial large steps before gradually shrinking exploration.
+* `spiral::Bool=false` – If `true`, the robot follows a predefined outward spiral pattern at the beginning instead of Thompson sampling.
+* `meas_time::Float64=1.0` – Measurement duration per observation.
+* `r_check::Float64=70.0` – Radius used to determine local sampling density for adaptive movement scaling.
+* `r_check_count::Int=10` – Number of nearby samples within `r_check` required to trigger coarse movement (larger step sizes).
+* `disable_log::Bool=true` – If `true`, disables logging output from Turing.jl and MCMC sampling.
+
+# returns
+* `sim_data::DataFrame` – A DataFrame containing the simulation results. Each row corresponds to a step in the robot's path and includes the following columns:
+  - `"time"` – Cumulative time at each step (including travel and measurement).
+  - `"x [m]"` – 2D position of the robot in meters.
+  - `"counts"` – Measured radiation counts at each location.
+
+* `sim_chains::Dict{Int, DataFrame}` *(only if `save_chains=true`)* – A dictionary mapping each simulation step index to the corresponding MCMC chain output as a DataFrame. Each chain represents the posterior samples for source location and intensity at that step.
+"""
+function sim_exp(
+    num_steps::Int64,
+    environment::Environment;
+    robot_start::Vector{Int64}=[41, 43],
+    num_mcmc_samples::Int64=150,
+    num_mcmc_chains::Int64=4,
+    I::Float64=I,
+    allow_overlap::Bool=false,
+    x₀::Vector{Float64}=[250.0, 250.0],
+    save_chains::Bool=false,
+    exploring_start::Bool=true,
+    num_exploring_start_steps::Int=1,
+    spiral::Bool=false,
+    meas_time::Float64=1.0,
+    r_check::Float64=70.0,
+    r_check_count::Int=10,
+    disable_log::Bool=true
+)
+    @assert hasfield(typeof(environment), :grid) "environment struct must contain the :grid field."
+
+    # Initialize robot path and starting sample
+    x_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 1]
+    y_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 2]
+    robot_path = [[x_start, y_start]]
+
+    sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
+    noise = rand(Poisson(λ_background)) * rand([-1, 1])
+    start_sample = round(Int, max(sample_mean + noise, 0))
+
+    sim_data = DataFrame(
+        "time" => [meas_time],
+        "x [m]" => [robot_path[end]],
+        "counts" => [start_sample]
+    )
+    sim_chains = Dict{Int, DataFrame}()
+
+    for step = 1:num_steps
+		if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
+            @info "Source found at step $(step), robot at location $(robot_path[end])"
+            break
+        end
+
+        result = get_next_sample(
+            sim_data,
+            environment;
+            num_mcmc_samples=num_mcmc_samples,
+            num_mcmc_chains=num_mcmc_chains,
+            I=I,
+            allow_overlap=allow_overlap,
+            x₀=x₀,
+            save_chains=save_chains,
+            exploring_start=exploring_start,
+            num_exploring_start_steps=num_exploring_start_steps,
+            spiral=spiral,
+            r_check=r_check,
+            r_check_count=r_check_count,
+            disable_log=disable_log
+        )
+
+	if save_chains
+		if result isa Tuple{Vector{Float64}, DataFrame}
+			next_pos, model_chain = result
+			sim_chains[step] = model_chain
+		else
+			@warn "Expected tuple return but got $(typeof(result)). Using result as next_pos."
+			next_pos = result
+		end
+	else
+		next_pos = result
+	end
+
+        Δt_travel = norm(next_pos .- robot_path[end]) / r_velocity
+        robot_path = push!(robot_path, next_pos)
+
+        sample_mean = mean(count_Poisson(next_pos, x₀, I))
+        noise = rand(Poisson(λ_background)) * rand([-1, 1])
+        counts = round(Int, max(sample_mean + noise, 0))
+
+        push!(sim_data, Dict(
+            "time" => sim_data[end, "time"] + Δt_travel + meas_time,
+            "x [m]" => next_pos,
+            "counts" => counts
+        ))
+    end
+
+    return save_chains ? (sim_data, sim_chains) : sim_data
+end
+
 
 # ╔═╡ 7647103a-27fe-436a-87cf-301b52195174
-exp_test, exp_chains = sim_exp(400, grid_env, save_chains=true)
+exp_test, exp_chains = sim_exp(50, grid_env, save_chains=true)
 
 # ╔═╡ 4e9e816b-dae3-4a6e-9453-f925ac70f140
 viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(exp_chains)], show_grid=false, x₀=[250.0, 250.0])
@@ -2821,7 +2954,6 @@ viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(
 # ╟─3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
 # ╟─c6783f2e-d826-490f-93f5-3da7e2717a02
 # ╠═1e7e4bad-16a0-40ee-b751-b2f3664f6620
-# ╠═f57e810f-66cf-43ef-a99a-edef5d9ef772
 # ╠═13ff8f6a-7bb2-41a0-83ac-7c9fca962605
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
@@ -2894,5 +3026,6 @@ viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(
 # ╠═5b8c19ce-273a-48e3-9677-f26fb1be9c61
 # ╟─28f3b421-6f09-4b52-a032-f67542b1efab
 # ╠═c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
+# ╠═195b34df-026e-4c02-86c5-7a21c689869f
 # ╠═7647103a-27fe-436a-87cf-301b52195174
 # ╠═4e9e816b-dae3-4a6e-9453-f925ac70f140
