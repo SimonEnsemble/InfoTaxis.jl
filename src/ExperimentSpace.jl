@@ -291,7 +291,7 @@ function get_next_sample(
     end
 
 	#return final valid pos
-    return current_pos
+    return save_chains ? (current_pos, model_chain) : current_pos
 end
 
 #############################################################################

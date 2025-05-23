@@ -2562,7 +2562,7 @@ function get_next_sample(
     end
 
 	#return final valid pos
-    return current_pos
+	return save_chains ? (current_pos, model_chain) : current_pos
 end
 
 # ╔═╡ 28f3b421-6f09-4b52-a032-f67542b1efab
