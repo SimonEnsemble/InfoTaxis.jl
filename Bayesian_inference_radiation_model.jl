@@ -2744,17 +2744,8 @@ end
 # ╔═╡ 7647103a-27fe-436a-87cf-301b52195174
 exp_test, exp_chains = sim_exp(400, grid_env, save_chains=true)
 
-# ╔═╡ 76ccb7b4-e420-432c-ad70-199a076fccd4
-exp_chains[length(exp_chains)]
-
-# ╔═╡ 5e10e0b4-7900-4782-815a-7c37c2e9ea45
-length(exp_chains)
-
 # ╔═╡ 4e9e816b-dae3-4a6e-9453-f925ac70f140
 viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(exp_chains)], show_grid=false, x₀=[250.0, 250.0])
-
-# ╔═╡ 5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
-ExperimentSpace.get_next_sample(data, grid_env)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -2904,7 +2895,4 @@ ExperimentSpace.get_next_sample(data, grid_env)
 # ╟─28f3b421-6f09-4b52-a032-f67542b1efab
 # ╠═c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
 # ╠═7647103a-27fe-436a-87cf-301b52195174
-# ╠═76ccb7b4-e420-432c-ad70-199a076fccd4
-# ╠═5e10e0b4-7900-4782-815a-7c37c2e9ea45
 # ╠═4e9e816b-dae3-4a6e-9453-f925ac70f140
-# ╠═5c013f36-4d2c-4f84-9f16-3822d9c9dc7a
