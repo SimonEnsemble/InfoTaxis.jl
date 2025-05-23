@@ -22,22 +22,24 @@ This function renders a heatmap of the environment’s layout and optionally ove
 * `fig_size::Int=800` – Controls the pixel resolution of the output figure.
 * `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
 * `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
 
 # returns
 * `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
 """
 function viz_robot_grid(
-	environment; 
+	environment::Environment; 
 	data_collection::Union{DataFrame, Nothing}=nothing,
 	chain_data::Union{Nothing, DataFrame}=nothing,
 	fig_size::Int=800,
 	show_grid::Bool=true,
-	x₀::Union{Vector{Float64}, Nothing}=nothing
+	x₀::Union{Vector{Float64}, Nothing}=nothing,
+	scale_max::Real=1e2
 )
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
 
-    heatmap!(ax, environment.masked_env; colormap=:grays)
+    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
 
     n_valid = count(environment.grid[:, :, 3] .== true)
 
@@ -66,8 +68,15 @@ function viz_robot_grid(
 
 	if !isnothing(data_collection)
 		#TODO: use viz_path!() to visualize the data collection
-		sc = viz_path!(ax, data_collection)
-		Colorbar(fig[1, 2], sc, label = "counts")
+		
+		sc = viz_path!(ax, data_collection, scale_max=1e2)
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+		#Colorbar(fig[1, 2], sc, label = "counts")
 	end
 
 	if !isnothing(x₀)
@@ -77,6 +86,7 @@ function viz_robot_grid(
 
     return fig
 end
+
 
 
 #############################################################################

@@ -683,6 +683,9 @@ md"""
 ## `Visualize` - Rad source search grid
 """
 
+# ╔═╡ 6d4e86ae-701c-443e-9d05-0cc123adbc29
+grid_env
+
 # ╔═╡ b63d1384-02ef-45c6-80c8-fdfd54ce6804
 grid_env.grid
 
@@ -1063,6 +1066,7 @@ This function renders a heatmap of the environment’s layout and optionally ove
 * `fig_size::Int=800` – Controls the pixel resolution of the output figure.
 * `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
 * `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
 
 # returns
 * `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
@@ -1073,12 +1077,13 @@ function viz_robot_grid(
 	chain_data::Union{Nothing, DataFrame}=nothing,
 	fig_size::Int=800,
 	show_grid::Bool=true,
-	x₀::Union{Vector{Float64}, Nothing}=nothing
+	x₀::Union{Vector{Float64}, Nothing}=nothing,
+	scale_max::Real=1e2
 )
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
 
-    heatmap!(ax, environment.masked_env; colormap=:grays)
+    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
 
     n_valid = count(environment.grid[:, :, 3] .== true)
 
@@ -1107,8 +1112,15 @@ function viz_robot_grid(
 
 	if !isnothing(data_collection)
 		#TODO: use viz_path!() to visualize the data collection
-		sc = viz_path!(ax, data_collection)
-		Colorbar(fig[1, 2], sc, label = "counts")
+		
+		sc = viz_path!(ax, data_collection, scale_max=1e2)
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+		#Colorbar(fig[1, 2], sc, label = "counts")
 	end
 
 	if !isnothing(x₀)
@@ -2785,6 +2797,7 @@ ExperimentSpace.get_next_sample(data, grid_env)
 # ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 # ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
 # ╟─560de084-b20b-45d7-816a-c0815f398e6d
+# ╠═6d4e86ae-701c-443e-9d05-0cc123adbc29
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
 # ╠═b63d1384-02ef-45c6-80c8-fdfd54ce6804
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
