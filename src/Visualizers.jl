@@ -28,7 +28,7 @@ This function renders a heatmap of the environment’s layout and optionally ove
 * `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
 """
 function viz_robot_grid(
-	environment::Environment; 
+	environment; 
 	data_collection::Union{DataFrame, Nothing}=nothing,
 	chain_data::Union{Nothing, DataFrame}=nothing,
 	fig_size::Int=800,
@@ -36,6 +36,8 @@ function viz_robot_grid(
 	x₀::Union{Vector{Float64}, Nothing}=nothing,
 	scale_max::Real=1e2
 )
+	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
+
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
 
