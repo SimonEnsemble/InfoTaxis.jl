@@ -89,9 +89,489 @@ end
 
 
 
+
+
 #############################################################################
 ##  MODEL VISUALIZERS
 #############################################################################
 
+"""
+Visualize simulated radiation data provided by the radiation team.
+
+# arguments
+* `rad_sim::RadSim` - the radiation simulation data structure after being imported.
+# keyword arguments
+* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - optional obstruction data, if provided obstructions will be visualized as teal blocks.
+"""
+function viz_model_data(
+	rad_sim; 
+	z_slice::Int64=1, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+	#ensure rad_sim struct
+	@assert hasfield(typeof(rad_sim), :γ_matrix) "rad_sim struct should contain γ_matrix field"
+
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂"
+	)
+
+	#convert normalized gammas to counts
+	counts_I = I * rad_sim.γ_matrix[z_slice]
+	
+	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
+
+	#establish logarithmic colorbar tick values
+	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
+end
+
+"""
+Radiation simulation RadSim, visual helper function.
+
+# arguments
+* `ax` - Cairo Makie axis.
+* `rad_sim::RadSim` - radiation simulation struct.
+# keyword arguments
+* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector containing Obstruction objects to be visualized.
+"""
+function viz_model_data!(
+	ax, 
+	rad_sim; 
+	z_slice::Int64=1, 	
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+
+	#ensure rad_sim struct
+	@assert hasfield(typeof(rad_sim), :γ_matrix) "rad_sim struct should contain γ_matrix field"
+
+	#set up a log scale
+	scale = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	# x and y values 
+	xs = ys = [val for val in 0:rad_sim.Δxy:rad_sim.Lxy]
+	#counts
+	counts_I = I * rad_sim.γ_matrix[z_slice]
+
+	hm = heatmap!(ax, xs, ys, counts_I, colormap=colormap, colorscale=scale)
+
+	if !isnothing(obstructions)
+		viz_obstructions!(ax, obstructions)
+	end
+	
+	return hm
+end
+
+"""
+Obstruction visualization helper function.
+
+# arguments
+* `ax` - Cairo Makie axis.
+* `obstructions::Vector{Obstruction}` - vector containing Obstruction objects to be visualized.
+"""
+function viz_obstructions!(ax, obstructions::Vector{Obstruction})
+	for obs in obstructions
+		if obs isa Rectangle
+			cx, cy = obs.center
+			w2, h2 = obs.width / 2, obs.height / 2
+			rect_vertices = [
+				(cx - w2, cy - h2),
+				(cx + w2, cy - h2),
+				(cx + w2, cy + h2),
+				(cx - w2, cy + h2),
+			]
+			poly!(ax, rect_vertices, color=ColorSchemes.bamako10[1], strokewidth=1.0, transparency=true)
+		elseif obs isa Circle
+			θ = range(0, 2π; length=100)
+			cx, cy = obs.center
+			r = obs.radius
+			xs = cx .+ r .* cos.(θ)
+			ys = cy .+ r .* sin.(θ)
+			poly!(ax, xs, ys, color=ColorSchemes.bamako10[1])
+		end
+	end
+end
+
+#############################################################################
+##  ANALYTICAL MODEL VISUALIZERS
+#############################################################################
+
+"""
+Visualizes a field of radiation strength values as expected counts per second using an analytical Poisson model.
+
+# keyword arguments
+* `fig_size::Int=500` - resolution control.
+* `L::Float64=1000.0` - size of the grid space.
+* `x₀::Vector{Float64}=[251.0, 251.0]` - source location. This is used to calculate strength.
+* `I::Float64=1.16365e10` - source strength.
+* `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+"""
+function viz_c_analytical(; 
+	fig_size::Int=500, 
+  	L::Float64=1000.0, 
+  	x₀::Vector{Float64}=[251.0, 251.0], 
+  	I::Float64=1.16365e10, 
+  	source::Union{Nothing, Vector{Float64}}=x₀, scale_max::Float64=1e5
+ )
+
+	fig = Figure(size = (fig_size, fig_size))
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂",
+		title="Expected Radiation Field (Poisson Model)"
+	)
+
+	scale = ReversibleScale(
+	    x -> log10(x + 1),   # forward: avoids log(0)
+	    x -> 10^x - 1        # inverse
+	)
+
+	hm, _ = viz_c_analytical!(ax, scale, fig_size=fig_size, L=L, x₀=x₀, I=I, source=source, scale_max=scale_max)
+
+	colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+	
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
+end
+
+"""
+`viz_c_analytical` helper function, Visualizes a field of radiation strength values as expected counts per second using an analytical Poisson model.
+
+
+# arguments
+* `ax` - Cairo Makie axis.
+* `color_scale::ReversibleScale` - the non-linear color scale.
+# keyword arguments
+* `fig_size::Int=500` - resolution control.
+* `L::Float64=1000.0` - size of the grid space.
+* `x₀::Vector{Float64}=[251.0, 251.0]` - source location. This is used to calculate strength.
+* `I::Float64=1.16365e10` - source strength.
+* `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+"""
+function viz_c_analytical!(
+	ax, color_scale::ReversibleScale; 
+	fig_size::Int=500, 
+	L::Float64=1000.0, 
+	x₀::Vector{Float64}=[251.0, 251.0], 
+	I::Float64=1.16365e10, 
+	source::Union{Nothing, Vector{Float64}}=x₀, 
+	scale_max::Float64=1e5
+)
+	#colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
+
+	xs = collect(0.0:Δx:L)
+	counts = [mean(count_Poisson([x₁, x₂], x₀, I)) for x₁ in xs, x₂ in xs] # counts
+
+	hm = heatmap!(ax, xs, xs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
+
+	if ! isnothing(source)
+		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=10, label="source", strokewidth=1)
+		axislegend(ax, position=:rb)
+	end
+
+	return hm, counts
+end
+
+#############################################################################
+##  TURING CHAIN VISUALIZER
+#############################################################################
+
+function viz_chain_data(
+	chain::DataFrame; 
+	res::Float64=800.0, 
+	L::Float64=L, 
+	show_source::Bool=true, 
+	path_data::Union{Nothing, DataFrame}=nothing, 
+	scale_max::Real=200.0,
+	show_as_heatmap::Bool=false
+)
+	
+	fig = Figure(size = (res, res))
+	ax = Axis(fig[1, 1], aspect=DataAspect())
+	viz_chain_data!(ax, chain, show_source=show_source, show_as_heatmap=show_as_heatmap)
+
+	if !isnothing(path_data)
+		sc = viz_path!(ax, path_data, scale_max=scale_max)
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=15, labelsize=25)
+	end
+
+	xlims!(-1, L+1)
+	ylims!(-1, L+1)
+	
+	return fig
+end
+
+function viz_chain_data!(
+	ax, 
+	chain::DataFrame; 
+	show_source::Bool=true,
+	src_size::Float64=15.0,
+	show_as_heatmap::Bool=false,
+	Δx::Float64=Δx, 
+	L::Float64=L,
+	show_legend::Bool=true
+)
+
+	if show_as_heatmap
+		P = chain_to_P(chain)
+		x_bin_centers = edges_to_centers(Δx=Δx, L=L)
+		hm = heatmap!(x_bin_centers, x_bin_centers, P, colormap=ColorSchemes.plasma)
+	else
+		scatter!(ax, chain[:, "x₀[1]"], chain[:, "x₀[2]"],marker=:+)
+	end
+	
+	if show_source
+		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=src_size, strokewidth=2)
+		if show_legend
+			axislegend(ax, location=:tr)
+		end
+		if show_as_heatmap
+			return hm
+		end
+	end
+
+	if show_as_heatmap
+		return hm
+	end
+	
+end
+
+## CHAIN TO HEATMAP ########################################################
+
+function chain_to_P(
+	chain::DataFrame; 
+	Δx::Float64=Δx, 
+	L::Float64=L
+)
+	x_edges = collect(0.0:Δx:L+2) .- Δx/2
+	hist_x₀ = fit(
+		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
+	)
+	return hist_x₀.weights / sum(hist_x₀.weights)
+end
+
+function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
+	n = length(x_edges)
+	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
+end
+
+## POSTERIOR ################################################################
+
+function viz_posterior(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
+	fig = Figure()
+
+	# dist'n of I
+	ax_t = Axis(fig[1, 1], xlabel="I [g/L]", ylabel="density", xscale=log10)
+	hist!(ax_t, chain[:, "I"], bins=[10.0^e for e in range(0, log10(I_max), length=50)])
+	#xscale!(ax_t, :log10)
+
+	# dist'n of x₀
+	ax_b = Axis(
+		fig[2, 1], xlabel="x₁ [m]", ylabel="x₂ [m]", aspect=DataAspect()
+	)
+	xlims!(ax_b, 0, L)
+	ylims!(ax_b, 0, L)
+	#=hb = hexbin!(
+		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
+	)=#
+	hm = viz_chain_data!(
+		ax_b, 
+		chain,
+		show_source=true,
+		show_as_heatmap=true,
+		Δx=Δx, 
+		L=L,
+		show_legend=false,
+		src_size=7.0
+	)
+	Colorbar(fig[2, 2], hm, label="density")
+
+	# show ground-truth
+	vlines!(ax_t, I, color="red", linestyle=:dash)
+	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
+	
+	return fig
+end
+
+#############################################################################
+##  MOVEMENT AND MEASUREMENT VISUALIZER
+#############################################################################
+
+"""
+Visualizes the robot path, measurement locations, and optionally the radiation field, source location, obstructions, and MCMC posterior data on a 2D plot.
+
+This function overlays data collected during a simulation on top of a spatial map. If provided, it also plots the Poisson-predicted radiation field and source location from the analytical model, as well as any physical obstructions and posterior sample information from MCMC inference.
+
+# arguments
+* `path_data::DataFrame` – DataFrame containing the robot's path history and collected measurements. Must contain a column `"x [m]"` with position vectors.
+
+# keyword arguments
+* `x₀::Union{Nothing, Vector{Float64}}=nothing` – The true source location. If provided, it is plotted as a black cross.
+* `rad_sim::Union{Nothing, RadSim}=nothing` – The analytical radiation model used to compute expected counts for visualization.
+* `fig_size::Float64=1000.0` – Resolution (in pixels) for the figure size.
+* `L::Float64=1000.0` – Length of the domain in meters (used if `rad_sim` is not provided).
+* `scale_max::Float64=1e6` – Maximum count rate value for color scaling (used only if `rad_sim` is not provided).
+* `z_slice::Int64=1` – Slice of the γ-matrix to visualize (default is the first slice).
+* `save_num::Int64=0` – If greater than zero, saves the figure as `"save_num.png"`.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions (e.g., `Rectangle` or `Circle`) to be drawn on the plot.
+* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional MCMC posterior samples (e.g., from Turing.jl). If provided, they will be plotted on the figure.
+
+# returns
+* A `CairoMakie.Figure` object containing the assembled visualization.
+"""
+function viz_data_collection(
+	path_data::DataFrame; 
+	x₀::Union{Nothing, Vector{Float64}}=nothing, 
+	rad_sim=nothing, 
+	fig_size::Float64=1000.0, 
+	L::Float64=1000.0, 
+	scale_max::Float64=1e6, 
+	z_slice::Int64=1, 
+	save_num::Int64=0, 	
+	obstructions=nothing, 
+	chain_data::Union{Nothing, DataFrame}=nothing
+)	    
+	
+	fig = Figure(size=(fig_size, fig_size))
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂",
+		xlabelsize=40,
+		ylabelsize=40,
+		xticklabelsize=21,
+		yticklabelsize=21
+	)
+
+	if ! isnothing(rad_sim)
+		#get source, grid size and scale_max from data
+		counts_I = I * rad_sim.γ_matrix[z_slice]
+		source_coord = argmax(counts_I)
+		source = [coord * rad_sim.Δxy for coord in source_coord.I]
+		source[1] = source[1] - Δx
+		scale_max = maximum(counts_I)
+		L = rad_sim.Lxy
+		
+		scale = ReversibleScale(
+		    x -> log10(x + 1),   # forward: avoids log(0)
+		    x -> 10^x - 1        # inverse
+		)
+		
+		hm 							  = viz_model_data!(ax, rad_sim, obstructions=obstructions)
+		colorbar_tick_values 		  = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] 	  = 0.0
+		colorbar_tick_labels 		  = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+		Colorbar(fig[1, 2], hm, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+	end
+
+	sc = viz_path!(ax, path_data, scale_max=scale_max)
+
+	if ! isnothing(x₀) || ! isnothing(rad_sim)
+		scatter!([source[1]], [source[2]], color="black", marker=:xcross, markersize=25, label="source", strokewidth=1)
+		#axislegend(location=:tr)
+	end
+
+	if ! isnothing(chain_data)
+		viz_chain_data!(ax, chain_data, show_source=false)
+	end
+	
+	xlims!(0-Δx, L+Δx)
+	ylims!(0-Δx, L+Δx)
+	
+	if isnothing(rad_sim)
+		Colorbar(fig[1, 2], sc, label="counts")
+	end
+
+	if save_num > 0
+		save("$(save_num).png", fig)
+	end
+	
+	fig
+end
+
+"""
+`viz_path!` helper function, visualizes the robot’s movement and collected radiation data on a 2D axis.
+
+Each data point is represented as a scatter marker colored by the measured radiation count rate, with optional line segments showing the robot's traversal path. Color and size gradients are used to enhance the visual progression of the path over time.
+
+# arguments
+* `ax` – A `CairoMakie.Axis` object to draw the path and measurements on.
+* `path_data::DataFrame` – DataFrame containing at least `"x [m]"` (a vector of robot positions) and `"counts"` (scalar values representing measured radiation) for each step.
+
+# keyword arguments
+* `scale_max::Real=1e6` – Maximum value for the color scale mapping measured radiation counts.
+* `show_lines::Bool=true` – If `true`, draws connecting line segments between consecutive robot positions to show the path trajectory.
+
+# returns
+* A `Makie.scatterplot` object representing the colored data points.
+"""
+function viz_path!(
+	ax, 
+	path_data::DataFrame; 
+	scale_max::Real=1e6, 
+	show_lines::Bool=true
+)
+
+	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(path_data)]
+	if show_lines
+		if length(positions) > 1
+		    color_map = reverse([ColorSchemes.hot[i] for i in range(0, 1.0, length=length(positions))])
+		    line_colors = [get(reverse(ColorSchemes.winter), i) for i in range(0, stop=1.0, length=length(positions))]
+		    line_widths = collect(reverse(range(0.5, stop=6.0, length=length(positions))))
+		
+		    for i in 1:length(positions)-1
+		        r1, y1 = positions[i]
+		        r2, y2 = positions[i+1]
+		        lines!(ax, [r1, r2], [y1, y2], color=line_colors[i], linewidth=line_widths[i], joinstyle = :round)
+		    end
+		end
+	end
+
+	scale = ReversibleScale(
+		    x -> log10(x + 1),   # forward: avoids log(0)
+		    x -> 10^x - 1        # inverse
+		)
+
+	sc = scatter!(
+			[row["x [m]"][1] for row in eachrow(path_data)],
+			[row["x [m]"][2] for row in eachrow(path_data)],
+			color=[row["counts"][1] for row in eachrow(path_data)],
+			colormap=colormap,
+			colorscale = scale,
+			colorrange=(0.0, scale_max),
+			strokewidth=2,
+			markersize=11
+		)
+
+	return sc
+end
 
 end

@@ -59,7 +59,8 @@ begin
 	x₀ = [250.0, 250.0]
 	P_γ = 0.85 #about 85% decays emit detectable gamma
 	Σ = 0.2 #macroscopic cross section (mean free path)
-	mCi = 0.050 #50 μCi
+	mCi = 0.10 #100 μCi\
+
 	I = mCi * 3.7 * 10^7 * P_γ # 1mCi = 3.7*10^7 Bq
 	#counts/gamma - multiply this by the value normalized to #of photons
 
@@ -77,7 +78,7 @@ begin
 
 	# robot/environment parameters
 	r_velocity = 5.0 #m/s
-	λ_background = 1.5 #Poisson distr lambda val for noise
+	λ_background = 0.5 #Poisson distr lambda val for noise
 
 end
 
@@ -606,6 +607,9 @@ begin
 	heatmap(environment_masked)
 end
 
+# ╔═╡ e2387282-0c5e-4115-9868-738c864ce41b
+heatmap(vac_environment)
+
 # ╔═╡ 5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 """
 Generates a matrix of locations for a robot to explore of user defined coarseness.
@@ -722,12 +726,6 @@ md"""
 ## `Visualize` - Analytical Model
 """
 
-# ╔═╡ 32da72f4-167d-42a6-852d-4c30792450ea
-typeof(ReversibleScale(
-	    x -> log10(x + 1),   # forward: avoids log(0)
-	    x -> 10^x - 1        # inverse
-	))
-
 # ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
 """
 `viz_c_analytical` helper function, Visualizes a field of radiation strength values as expected counts per second using an analytical Poisson model.
@@ -744,7 +742,15 @@ typeof(ReversibleScale(
 * `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
 * `scale_max::Float64=1e5` - the max source strength for the color bar.
 """
-function viz_c_analytical!(ax, color_scale::ReversibleScale; fig_size::Int=500, L::Float64=1000.0, x₀::Vector{Float64}=[251.0, 251.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=x₀, scale_max::Float64=1e5)
+function viz_c_analytical!(
+	ax, color_scale::ReversibleScale; 
+	fig_size::Int=500, 
+	L::Float64=1000.0, 
+	x₀::Vector{Float64}=[251.0, 251.0], 
+	I::Float64=1.16365e10, 
+	source::Union{Nothing, Vector{Float64}}=x₀, 
+	scale_max::Float64=1e5
+)
 	#colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
 
 	xs = collect(0.0:Δx:L)
@@ -772,7 +778,14 @@ Visualizes a field of radiation strength values as expected counts per second us
 * `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
 * `scale_max::Float64=1e5` - the max source strength for the color bar.
 """
-function viz_c_analytical(; fig_size::Int=500, L::Float64=1000.0, x₀::Vector{Float64}=[251.0, 251.0], I::Float64=1.16365e10, source::Union{Nothing, Vector{Float64}}=x₀, scale_max::Float64=1e5)
+function viz_c_analytical(; 
+	fig_size::Int=500, 
+  	L::Float64=1000.0, 
+  	x₀::Vector{Float64}=[251.0, 251.0], 
+  	I::Float64=1.16365e10, 
+  	source::Union{Nothing, Vector{Float64}}=x₀, scale_max::Float64=1e5
+ )
+	
 	fig = Figure(size = (fig_size, fig_size))
 	ax  = Axis(
 	    fig[1, 1], 
@@ -923,8 +936,14 @@ Each data point is represented as a scatter marker colored by the measured radia
 # returns
 * A `Makie.scatterplot` object representing the colored data points.
 """
-function viz_path!(ax, path_data::DataFrame; scale_max::Real=1e6, show_lines::Bool=true)
+function viz_path!(
+	ax, 
+	path_data::DataFrame; 
+	scale_max::Real=1e6, 
+	show_lines::Bool=true
+)
 
+	
 	positions = [(row["x [m]"][1], row["x [m]"][2]) for row in eachrow(path_data)]
 	if show_lines
 		if length(positions) > 1
@@ -958,9 +977,6 @@ function viz_path!(ax, path_data::DataFrame; scale_max::Real=1e6, show_lines::Bo
 
 	return sc
 end
-
-# ╔═╡ 80b858b7-3aa2-4c85-987e-291a1b147486
-
 
 # ╔═╡ 50832f87-c7eb-4418-9864-0f807a16e7a7
 md"## Spiral movement"
@@ -1047,17 +1063,146 @@ end
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
 
-# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
-function viz_chain_data!(ax, chain::DataFrame; show_source::Bool=true)
+# ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
+md"## `Visualize` - Turing chain heatmap"
 
-	scatter!(ax,
-		chain[:, "x₀[1]"], chain[:, "x₀[2]"], marker=:+
+# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
+function chain_to_P(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+2) .- Δx/2
+	hist_x₀ = fit(
+		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
 	)
-	if show_source
-		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=15, strokewidth=1)
-		axislegend(ax, location=:tr)
+	return hist_x₀.weights / sum(hist_x₀.weights)
+end
+
+# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
+#=
+function x_to_bin(x::Float64; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
+	
+	for b = 1:length(x_edges)-1
+		if x < x_edges[b+1]
+			return b
+		end
 	end
 end
+=#
+
+# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
+function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
+	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
+	n = length(x_edges)
+	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
+end
+
+# ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
+function viz_chain_data!(
+	ax, 
+	chain::DataFrame; 
+	show_source::Bool=true,
+	src_size::Float64=15.0,
+	show_as_heatmap::Bool=false,
+	Δx::Float64=Δx, 
+	L::Float64=L,
+	show_legend::Bool=true
+)
+
+	if show_as_heatmap
+		P = chain_to_P(chain)
+		x_bin_centers = edges_to_centers(Δx=Δx, L=L)
+		hm = heatmap!(x_bin_centers, x_bin_centers, P, colormap=ColorSchemes.plasma)
+	else
+		scatter!(ax, chain[:, "x₀[1]"], chain[:, "x₀[2]"],marker=:+)
+	end
+	
+	if show_source
+		scatter!(ax, x₀[1], x₀[2], color="red", label="source", marker=:xcross, markersize=src_size, strokewidth=2)
+		if show_legend
+			axislegend(ax, location=:tr)
+		end
+		if show_as_heatmap
+			return hm
+		end
+	end
+
+	if show_as_heatmap
+		return hm
+	end
+	
+end
+
+# ╔═╡ 66d5216d-66a8-4e33-9f36-54a0d4ec4459
+"""
+Helper function for viz_robot_grid().
+
+Visualizes the robot's search grid over the environment, including optional overlays of data collection paths, posterior samples, and the true source location.
+
+This function renders a heatmap of the environment’s layout and optionally overlays valid sampling grid points, the robot’s movement path and measurements, posterior samples from MCMC chains, and the ground truth source location.
+
+# arguments
+* `environment::Environment` – The environment struct generated by `generate_robot_grid_matrix()`. It must contain a field `grid` of type `Array{Union{Bool, Int64}, 3}`, where the first two entries are the x and y coordinates of grid locations and the third entry is a Boolean indicating accessibility.
+
+# keyword arguments
+* `data_collection::Union{DataFrame, Nothing}=nothing` – A DataFrame containing the robot’s path and measured radiation values; used to visualize the robot’s trajectory.
+* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional posterior chain data used to visualize source belief distributions (via `viz_chain_data!`).
+* `fig_size::Int=800` – Controls the pixel resolution of the output figure.
+* `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
+* `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+
+# returns
+* `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
+"""
+function viz_robot_grid!(
+	ax,
+	environment::Environment; 
+	data_collection::Union{DataFrame, Nothing}=nothing,
+	chain_data::Union{Nothing, DataFrame}=nothing,
+	show_grid::Bool=true,
+	x₀::Union{Vector{Float64}, Nothing}=nothing,
+	scale_max::Real=1e2
+)
+    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
+
+    n_valid = count(environment.grid[:, :, 3] .== true)
+
+    xs = zeros(Float64, n_valid)
+    ys = zeros(Float64, n_valid)
+
+    idx = 1
+	if show_grid
+		#loop through the grid and add true values to the scatter plot
+	    for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
+	        if environment.grid[j, i, 3] == true
+	            xs[idx] = environment.grid[i, j, 1]
+	            ys[idx] = environment.grid[i, j, 2]
+	            idx += 1
+	        end
+	    end
+		scatter!(ax, xs, ys; color = :cyan, markersize = 10, label="search grid sampling point")
+		if isnothing(x₀)
+			axislegend(ax, position=:lb)
+		end
+	end
+
+	if ! isnothing(chain_data)
+		viz_chain_data!(ax, chain_data, show_source=false)
+	end
+
+	if !isnothing(data_collection)	
+		sc = viz_path!(ax, data_collection, scale_max=1e2)
+	end
+
+	if !isnothing(x₀)
+		scatter!(ax, [x₀[1]], [x₀[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+		axislegend(ax, position=:lb)
+	end
+
+	if !isnothing(data_collection)	
+		return sc
+	end
+end
+
 
 # ╔═╡ 45014b50-c04b-4f42-83c3-775ec6cd6e3f
 """
@@ -1091,51 +1236,24 @@ function viz_robot_grid(
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
 
-    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
-
-    n_valid = count(environment.grid[:, :, 3] .== true)
-
-    xs = zeros(Float64, n_valid)
-    ys = zeros(Float64, n_valid)
-
-    idx = 1
-	if show_grid
-		#loop through the grid and add true values to the scatter plot
-	    for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
-	        if environment.grid[j, i, 3] == true
-	            xs[idx] = environment.grid[i, j, 1]
-	            ys[idx] = environment.grid[i, j, 2]
-	            idx += 1
-	        end
-	    end
-		scatter!(ax, xs, ys; color = :cyan, markersize = 10, label="search grid sampling point")
-		if isnothing(x₀)
-			axislegend(ax, position=:lb)
-		end
-	end
-
-	if ! isnothing(chain_data)
-		viz_chain_data!(ax, chain_data, show_source=false)
-	end
+	sc = viz_robot_grid!(
+	ax,
+	environment,
+	data_collection=data_collection,
+	chain_data=chain_data,
+	show_grid=show_grid,
+	x₀=x₀,
+	scale_max=scale_max
+)
 
 	if !isnothing(data_collection)
-		#TODO: use viz_path!() to visualize the data collection
-		
-		sc = viz_path!(ax, data_collection, scale_max=1e2)
 		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
 		colorbar_tick_values[1] = 0.0
 
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
 		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
-		#Colorbar(fig[1, 2], sc, label = "counts")
 	end
-
-	if !isnothing(x₀)
-		scatter!(ax, [x₀[1]], [x₀[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
-		axislegend(ax, position=:lb)
-	end
-
     return fig
 end
 
@@ -1234,7 +1352,6 @@ function viz_data_collection(
 		Colorbar(fig[1, 2], sc, label="counts")
 	end
 
-	#
 	if save_num > 0
 		save("$(save_num).png", fig)
 	end
@@ -1243,11 +1360,19 @@ function viz_data_collection(
 end
 
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
-function viz_chain_data(chain::DataFrame; res::Float64=800.0, L::Float64=L, show_source::Bool=true, path_data::Union{Nothing, DataFrame}=nothing, scale_max::Real=200.0)
+function viz_chain_data(
+	chain::DataFrame; 
+	res::Float64=800.0, 
+	L::Float64=L, 
+	show_source::Bool=true, 
+	path_data::Union{Nothing, DataFrame}=nothing, 
+	scale_max::Real=200.0,
+	show_as_heatmap::Bool=false
+)
+	
 	fig = Figure(size = (res, res))
 	ax = Axis(fig[1, 1], aspect=DataAspect())
-
-	viz_chain_data!(ax, chain, show_source=show_source)
+	viz_chain_data!(ax, chain, show_source=show_source, show_as_heatmap=show_as_heatmap)
 
 	if !isnothing(path_data)
 		sc = viz_path!(ax, path_data, scale_max=scale_max)
@@ -1265,36 +1390,6 @@ function viz_chain_data(chain::DataFrame; res::Float64=800.0, L::Float64=L, show
 	return fig
 end
 
-# ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
-md"## `Visualize` - Turing chain heatmap"
-
-# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
-function chain_to_P(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+2) .- Δx/2
-	hist_x₀ = fit(
-		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
-	)
-	return hist_x₀.weights / sum(hist_x₀.weights)
-end
-
-# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
-function x_to_bin(x::Float64; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
-	
-	for b = 1:length(x_edges)-1
-		if x < x_edges[b+1]
-			return b
-		end
-	end
-end
-
-# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
-function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
-	n = length(x_edges)
-	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
-end
-
 # ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
 x_bin_centers = edges_to_centers()
 
@@ -1302,7 +1397,7 @@ x_bin_centers = edges_to_centers()
 md"## `Visualize` - Posterior"
 
 # ╔═╡ f4d234f9-70af-4a89-9a57-cbc524ec52b4
-function viz_posterior(chain::DataFrame)
+function viz_posterior(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
 	fig = Figure()
 
 	# dist'n of I
@@ -1316,15 +1411,26 @@ function viz_posterior(chain::DataFrame)
 	)
 	xlims!(ax_b, 0, L)
 	ylims!(ax_b, 0, L)
-	hb = hexbin!(
+	#=hb = hexbin!(
 		ax_b, chain[:, "x₀[1]"], chain[:, "x₀[2]"], colormap=colormap, bins=round(Int, L/Δx)
+	)=#
+	hm = viz_chain_data!(
+		ax_b, 
+		chain,
+		show_source=true,
+		show_as_heatmap=true,
+		Δx=Δx, 
+		L=L,
+		show_legend=false,
+		src_size=7.0
 	)
-	Colorbar(fig[2, 2], hb, label="count")
+	Colorbar(fig[2, 2], hm, label="density")
 
 	# show ground-truth
 	vlines!(ax_t, I, color="red", linestyle=:dash)
 	scatter!(ax_b, [x₀[1]], [x₀[2]], marker=:+, color="red")
-	fig
+	
+	return fig
 end
 
 # ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
@@ -1530,7 +1636,7 @@ chain = DataFrame(
 )
 
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain)
+ viz_chain_data(chain, show_as_heatmap=true)
 
 # ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
 P = chain_to_P(chain)
@@ -1601,7 +1707,7 @@ md"## simulate source localization"
 md"## `Example Sim`"
 
 # ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [100, 100]
+start = [65, 70]
 
 # ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
 md"### simulation control"
@@ -1610,7 +1716,7 @@ md"### simulation control"
 begin
 	# change this to the number of steps you want the robot to take before giving up
 	# without obstructions
-	num_steps_sim = 40
+	num_steps_sim = 90
 	#with obstructions
 	num_steps_sim_obst = 40
 
@@ -2225,7 +2331,7 @@ function simulate(
 end
 
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
-simulation_data, simulation_chains = simulate(test_rad_sim, num_steps_sim, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start,  exploring_start=true, num_exploring_start_steps=15, spiral=false)
+simulation_data, simulation_chains = simulate(test_rad_sim, num_steps_sim, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start,  exploring_start=true, num_exploring_start_steps=45, spiral=true)
 
 # ╔═╡ c6b9ca97-7e83-4703-abb9-3fd43daeb9a7
 viz_sim_chain_entropy(simulation_chains)
@@ -2491,7 +2597,8 @@ function get_next_sample(
 	spiral::Bool=false,
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
-	disable_log::Bool=true
+	disable_log::Bool=true,
+	turn_off_explore_threshold::Real=5
 )
 	#this is needed for src file where type assertions for structs get weird
 	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
@@ -2539,7 +2646,12 @@ function get_next_sample(
 		)
 		num_within_r_check -= 1
 		# if criteria met, move a lot at once
-		steps = num_within_r_check >= r_check_count ? 3 : 1
+		steps = num_within_r_check >= r_check_count ? 2 : 1
+	end
+
+	#override steps if recent data collection shows high samples
+	if data[end, "counts"] > turn_off_explore_threshold
+		steps = 1
 	end
 
 	#TODO - check from 1 to # steps in next_dir to see if environment.grid[x_coord, y_coord, 3] == true
@@ -2575,181 +2687,6 @@ end
 
 # ╔═╡ 28f3b421-6f09-4b52-a032-f67542b1efab
 md"## experiment sim"
-
-# ╔═╡ c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
-#=
-"""
-Runs a source localization simulation in a structured experimental environment defined by a grid.
-
-This function begins at a user-specified grid index within the environment and performs `num_steps` of movement using Thompson sampling-based decision making. It evaluates a probabilistic model at each step, uses MCMC to sample from the posterior, and selects the next location based on sampled target proximity and exploration heuristics. Movement is constrained to accessible grid locations and can optionally avoid previously visited points and obstructions.
-
-# arguments
-* `num_steps::Int64` – The number of movement steps the robot should take in the simulation.
-* `environment::Environment` – The grid-based environment object. This should contain a field `grid` of type `Array{Union{Bool, Int64}, 3}` with x-coordinates, y-coordinates, and accessibility information.
-
-# keyword arguments
-* `robot_start::Vector{Int64}=[41, 42]` – The grid indices (i, j) for the robot's starting location in the environment.
-* `num_mcmc_samples::Int64=150` – Number of MCMC samples awn per inference step.
-* `num_mcmc_chains::Int64=4` – Number of MCMC chains to run in parallel.
-* `I::Float64=I` – Source strength used in the forward model.
-* `allow_overlap::Bool=false` – If `false`, the robot avoids revisiting previously visited locations unless no alternatives exist.
-* `x₀::Vector{Float64}=[250.0, 250.0]` – True source location; simulation halts early if the robot comes within `Δx` of this location.
-* `save_chains::Bool=false` – If `true`, stores the MCMC chain output at each step for later analysis.
-* `exploring_start::Bool=true` – If `true`, the robot starts with large exploratory steps before switching to greedy movement.
-* `num_exploring_start_steps::Int=10` – Number of initial large steps before gradually shrinking exploration.
-* `spiral::Bool=false` – If `true`, the robot follows a predefined outward spiral pattern at the beginning instead of Thompson sampling.
-* `meas_time::Float64=1.0` – Measurement duration per observation.
-* `r_check::Float64=70.0` – Radius used to determine local sampling density for adaptive movement scaling.
-* `r_check_count::Int=10` – Number of nearby samples within `r_check` required to trigger coarse movement (larger step sizes).
-* `disable_log::Bool=true` – If `true`, disables logging output from Turing.jl and MCMC sampling.
-
-# returns
-* `sim_data::DataFrame` – A DataFrame containing the simulation results. Each row corresponds to a step in the robot's path and includes the following columns:
-  - `"time"` – Cumulative time at each step (including travel and measurement).
-  - `"x [m]"` – 2D position of the robot in meters.
-  - `"counts"` – Measured radiation counts at each location.
-
-* `sim_chains::Dict{Int, DataFrame}` *(only if `save_chains=true`)* – A dictionary mapping each simulation step index to the corresponding MCMC chain output as a DataFrame. Each chain represents the posterior samples for source location and intensity at that step.
-"""
-function sim_exp(
-	num_steps::Int64, 
-	environment::Environment;
-	robot_start::Vector{Int64}=[41, 43],
-	num_mcmc_samples::Int64=150,
-	num_mcmc_chains::Int64=4,
-	I::Float64=I,
-	allow_overlap::Bool=false,
-	x₀::Vector{Float64}=[250.0, 250.0],
-	save_chains::Bool=false,
-	exploring_start::Bool=true,
-	num_exploring_start_steps::Int=1,
-	spiral::Bool=false,
-	meas_time::Float64=1.0,
-	r_check::Float64=70.0,
-	r_check_count::Int=10,
-	disable_log::Bool=true
-)
-	#this is needed for src file where type assertions for structs get weird
-	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
-
-    # Get physical start position from environment grid
-    x_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 1]
-    y_start = 1.0 * environment.grid[robot_start[2], robot_start[1], 2]
-    robot_path = [[x_start, y_start]]
-
-	#get min maxes for search space
-	L_min = 1.0 * minimum(environment.grid[:, :, 1:2])
-	L_max = 1.0 * maximum(environment.grid[:, :, 1:2])
-
-	#Sample analytical model at start location with noise
-	#get the distr and take the mean
-	sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
-	#add some noise
-	noise = rand(Poisson(λ_background)) * rand([-1, 1])
-	#ensure positive integer
-	start_sample = round(Int, max(sample_mean + noise, 0))
-
-    sim_data = DataFrame(
-        "time" => [meas_time],
-        "x [m]" => [robot_path[end]],
-        "counts" => [start_sample] 
-    )
-    sim_chains = Dict()
-
-	#set up exploring starts
-    if exploring_start
-        expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
-    end
-
-	if disable_log
-		Turing.setprogress!(false)
-	end
-
-	######################################################
-	# simulation loop #
-    for iter = 1:num_steps
-        model = rad_model(sim_data, L_min=L_min, L_max=L_max, environment=environment)
-
-        if disable_log
-            chain = Logging.with_logger(NullLogger()) do
-                sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
-            end
-        else
-            chain = sample(model, NUTS(), MCMCThreads(), num_mcmc_samples, num_mcmc_chains, progress=false, thin=5)
-        end
-        model_chain = DataFrame(chain)
-
-        if save_chains
-            sim_chains[iter] = model_chain
-        end
-
-        if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
-            @info "Source found at step $(iter), robot at location $(robot_path[end])"
-            break
-        end
-
-		#get next direction using Thompson sampling
-        next_dir = thompson_sampling(
-            robot_path,
-            environment,
-            model_chain,
-            allow_overlap=allow_overlap
-        )
-
-        if next_dir == :nothing
-            @warn "iteration $(iter) found best_direction to be :nothing"
-            return save_chains ? (sim_data, sim_chains) : sim_data
-        end
-
-        num_within_r_check = sum(norm(pos .- robot_path[end]) <= r_check for pos in robot_path) - 1
-        move_dist = num_within_r_check >= r_check_count ? 3 : 1
-
-        if exploring_start
-            proposed = expl_start_steps[iter]
-            move_dist = proposed > 1 ? proposed : move_dist
-        end
-
-        Δ = get_Δ(next_dir, Δx=environment.Δ)
-        current_pos = robot_path[end]
-
-        for _ in 1:move_dist
-            next_pos = current_pos .+ Δ
-
-            xs = environment.grid[1, :, 1]
-            ys = environment.grid[:, 1, 2]
-            x_index = argmin(abs.(xs .- next_pos[1]))
-            y_index = argmin(abs.(ys .- next_pos[2]))
-
-            if !(0 < x_index <= size(environment.grid, 1) && 0 < y_index <= size(environment.grid, 2))
-                break
-            end
-
-            if !environment.grid[x_index, y_index, 3]
-                break
-            end
-
-            current_pos = next_pos
-        end
-
-        push!(robot_path, current_pos)
-        Δt_travel = norm(robot_path[end] .- robot_path[end-1]) / r_velocity
-
-        # Sample model at new location with noise from analytical model
-        sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
-        noise = rand(Poisson(λ_background)) * rand([-1, 1])
-        counts = round(Int, max(sample_mean + noise, 0))
-
-        push!(sim_data, Dict(
-            "time" => sim_data[end, "time"] + Δt_travel + meas_time,
-            "x [m]" => robot_path[end],
-            "counts" => counts
-        ))
-    end
-	######################################################
-
-    return save_chains ? (sim_data, sim_chains) : sim_data
-end
-=#
 
 # ╔═╡ 195b34df-026e-4c02-86c5-7a21c689869f
 """
@@ -2811,7 +2748,7 @@ function sim_exp(
     robot_path = [[x_start, y_start]]
 
     sample_mean = mean(count_Poisson(robot_path[end], x₀, I))
-    noise = rand(Poisson(λ_background)) * rand([-1, 1])
+    noise = rand(Poisson(0.5)) * rand([-1, 1])
     start_sample = round(Int, max(sample_mean + noise, 0))
 
     sim_data = DataFrame(
@@ -2822,10 +2759,6 @@ function sim_exp(
     sim_chains = Dict{Int, DataFrame}()
 
     for step = 1:num_steps
-		if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
-            @info "Source found at step $(step), robot at location $(robot_path[end])"
-            break
-        end
 
         result = get_next_sample(
             sim_data,
@@ -2843,6 +2776,12 @@ function sim_exp(
             r_check_count=r_check_count,
             disable_log=disable_log
         )
+
+		if norm(robot_path[end] .- x₀) <= (2 * environment.Δ^2)^(0.5)
+            @info "Source found at step $(step), robot at location $(robot_path[end])"
+			sim_chains[step] = result[2]
+            break
+        end
 
 	if save_chains
 		if result isa Tuple{Vector{Float64}, DataFrame}
@@ -2875,10 +2814,18 @@ end
 
 
 # ╔═╡ 7647103a-27fe-436a-87cf-301b52195174
-exp_test, exp_chains = sim_exp(50, grid_env, save_chains=true)
+exp_test, exp_chains = sim_exp(500, grid_env, save_chains=true)
 
 # ╔═╡ 4e9e816b-dae3-4a6e-9453-f925ac70f140
-viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(exp_chains)], show_grid=false, x₀=[250.0, 250.0])
+begin
+	for i=1:length(exp_chains)
+		fig = viz_robot_grid(grid_env, data_collection=exp_test[1:i, :], chain_data=exp_chains[i], show_grid=false, x₀=[250.0, 250.0])
+		save("exp_j$(i).png", fig)
+	end
+end
+
+# ╔═╡ 11df326c-8cda-4075-be87-c96d94baaec2
+viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)], show_grid=false, x₀=[250.0, 250.0])
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -2918,18 +2865,19 @@ viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(
 # ╠═6fdb31a6-f287-40a4-8c21-2ef92ff90a99
 # ╠═ca763f28-d2b2-4eac-ae6c-90f74e3c42e7
 # ╠═00f909f7-86fd-4d8e-8db2-6a587ba5f12d
+# ╠═e2387282-0c5e-4115-9868-738c864ce41b
 # ╠═5e7dc22c-dc2d-41b0-bb3e-5583a5b79bdd
 # ╠═4bda387f-4130-419c-b9a5-73ffdcc184f9
 # ╟─560de084-b20b-45d7-816a-c0815f398e6d
 # ╠═6d4e86ae-701c-443e-9d05-0cc123adbc29
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
+# ╠═66d5216d-66a8-4e33-9f36-54a0d4ec4459
 # ╠═b63d1384-02ef-45c6-80c8-fdfd54ce6804
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
 # ╠═e622cacd-c63f-416a-a4ab-71ba9d593cc8
 # ╟─8ed5d321-3992-40db-8a2e-85abc3aaeea0
 # ╠═6fa37ac5-fbc2-43c0-9d03-2d194e136951
-# ╠═32da72f4-167d-42a6-852d-4c30792450ea
 # ╠═0175ede7-b2ab-4ffd-8da1-278120591027
 # ╠═5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
 # ╟─31864185-6eeb-4260-aa77-c3e94e467558
@@ -2946,7 +2894,6 @@ viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(
 # ╠═deae0547-2d42-4fbc-b3a9-2757fcfecbaa
 # ╠═82425768-02ba-4fe3-ab89-9ac95a45e55e
 # ╠═9fbe820c-7066-40b5-9617-44ae0913928e
-# ╠═80b858b7-3aa2-4c85-987e-291a1b147486
 # ╟─50832f87-c7eb-4418-9864-0f807a16e7a7
 # ╠═7d0e24e2-de5b-448c-8884-4d407ead1319
 # ╠═22652624-e2b7-48e9-bfa4-8a9473568f9d
@@ -3025,7 +2972,7 @@ viz_robot_grid(grid_env, data_collection=exp_test, chain_data=exp_chains[length(
 # ╟─5ba7c685-8cc2-409d-8ed7-1b2b18cecd89
 # ╠═5b8c19ce-273a-48e3-9677-f26fb1be9c61
 # ╟─28f3b421-6f09-4b52-a032-f67542b1efab
-# ╠═c4cfe05e-92b6-4d21-bf05-03ef49bca3e8
 # ╠═195b34df-026e-4c02-86c5-7a21c689869f
 # ╠═7647103a-27fe-436a-87cf-301b52195174
 # ╠═4e9e816b-dae3-4a6e-9453-f925ac70f140
+# ╠═11df326c-8cda-4075-be87-c96d94baaec2

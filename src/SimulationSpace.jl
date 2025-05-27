@@ -8,6 +8,35 @@ include("InferenceEngine.jl")
 using .InferenceEngine, .Constants, .RadModelStructs, LinearAlgebra, Turing, SpecialFunctions, DataFrames, StatsBase, Distributions, JLD2, Logging, LatinHypercubeSampling
 
 #############################################################################
+##  EXAMPLES
+#############################################################################
+
+"""
+Returns a vector of obstruction objects used in our example simulation.
+"""
+function example_obstructions()
+	#rectangular block x(150-350) y(650-750) z(0-200)
+	wide_rect = Rectangle(
+		(150.0 + (350.0-150.0)/2, 650.0 + (750.0-650.0)/2),
+		350.0-150.0,
+		750.0-650.0
+	)
+	#rectangular block x(450-550) y(450-550) z(0-200)
+	square = Rectangle(
+		(450.0 + (550.0-450.0)/2, 450.0 + (550.0-450.0)/2),
+		550.0-450.0,
+		550.0-450.0
+	)
+	#cylinder bottom (750,350,0) height = 200, radius = 50
+	cylinder = Circle(
+		(750.0, 350.0),
+		50.0
+	)
+	obstructions = [wide_rect, square, cylinder]
+	return obstructions
+end
+
+#############################################################################
 ##  MOVE & SAMPLE MODEL
 #############################################################################
 """
