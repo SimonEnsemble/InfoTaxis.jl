@@ -20,7 +20,7 @@ end
 begin
 	import Pkg; Pkg.activate()
 	
-	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling, Logging
+	using CairoMakie, LinearAlgebra, Turing, SpecialFunctions, ColorSchemes, DataFrames, StatsBase, PlutoUI, Test, Distributions, Printf, PlutoTeachingTools, JLD2, CSV, DelimitedFiles, LatinHypercubeSampling, Logging, Interpolations
 end
 
 # ╔═╡ a03021d8-8de2-4c38-824d-8e0cb571b9f1
@@ -690,6 +690,23 @@ md"""
 # ╔═╡ 6d4e86ae-701c-443e-9d05-0cc123adbc29
 grid_env
 
+# ╔═╡ b48a8a94-7791-4e10-9a6b-1c6f2eca7968
+function resize_env_mask_to_posterior(env_mask, post_n::Int)
+    env_n = size(env_mask, 1)
+
+    # Convert Bool mask to Float for interpolation
+    float_mask = Float64.(env_mask)
+
+    itp = interpolate(float_mask, BSpline(Linear()))
+    scale_itp = scale(itp, range(1, env_n, length=env_n), range(1, env_n, length=env_n))
+
+    # Evaluate at evenly spaced points to match posterior resolution
+    query_pts = range(1, env_n, length=post_n)
+    resized_mask = [scale_itp[x, y] ≥ 0.5 for x in query_pts, y in query_pts]
+
+    return resized_mask
+end
+
 # ╔═╡ b63d1384-02ef-45c6-80c8-fdfd54ce6804
 grid_env.grid
 
@@ -1063,36 +1080,29 @@ end
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
 
+# ╔═╡ 2b656540-9228-4d8a-9db1-1c0bec3d33f3
+grid_env
+
+# ╔═╡ a8281a0d-2b9c-40d7-802a-ca434ba602f9
+size(grid_env.grid, 1)
+
+# ╔═╡ 9dd28728-f8de-43bb-8e0c-e7384f924adc
+grid_env
+
 # ╔═╡ 65d603f4-4ef6-4dff-92c1-d6eef535e67e
 md"## `Visualize` - Turing chain heatmap"
 
-# ╔═╡ 6da11e28-c276-4f45-a1aa-2c86ab26c85a
+# ╔═╡ 10c62123-4ae4-4688-87e1-9b0397c75e88
 function chain_to_P(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+2) .- Δx/2
-	hist_x₀ = fit(
-		Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges)
-	)
-	return hist_x₀.weights / sum(hist_x₀.weights)
+    nbins = floor(Int, L / Δx)
+    x_edges = range(0, stop=L, length=nbins + 1)
+    hist = fit(Histogram, (chain[:, "x₀[1]"], chain[:, "x₀[2]"]), (x_edges, x_edges))
+    return hist.weights / sum(hist.weights)
 end
 
-# ╔═╡ 50830491-6285-4915-b59a-fa5bb7298e51
-#=
-function x_to_bin(x::Float64; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
-	
-	for b = 1:length(x_edges)-1
-		if x < x_edges[b+1]
-			return b
-		end
-	end
-end
-=#
-
-# ╔═╡ 065befd1-f652-4925-b1b2-4e847a3884dd
-function edges_to_centers(; Δx::Float64=Δx, L::Float64=L)
-	x_edges = collect(0.0:Δx:L+Δx) .- Δx/2
-	n = length(x_edges)
-	return [(x_edges[i] + x_edges[i+1]) / 2 for i = 1:n-1]
+# ╔═╡ 8853858d-1d47-40c9-94a4-c912ad00af5d
+function edges_to_centers(x_edges)
+    return [(x_edges[i] + x_edges[i+1]) / 2 for i in 1:length(x_edges)-1]
 end
 
 # ╔═╡ 0a39daaa-2c20-471d-bee3-dcc06554cf78
@@ -1104,13 +1114,47 @@ function viz_chain_data!(
 	show_as_heatmap::Bool=false,
 	Δx::Float64=Δx, 
 	L::Float64=L,
-	show_legend::Bool=true
+	show_legend::Bool=true,
+	environment=nothing
 )
+	#if environment is provided, extract Δ and compute L
+	if !isnothing(environment)
+		Δx = environment.Δ
+		L = Δx * size(environment.grid, 1)
+	end
+	
 
 	if show_as_heatmap
-		P = chain_to_P(chain)
-		x_bin_centers = edges_to_centers(Δx=Δx, L=L)
-		hm = heatmap!(x_bin_centers, x_bin_centers, P, colormap=ColorSchemes.plasma)
+		nbins = floor(Int, L / Δx)
+	    x_edges = range(0, stop=L, length=nbins + 1)
+	    x_centers = edges_to_centers(x_edges)
+	    P = chain_to_P(chain; Δx=Δx, L=L)
+	
+	    hm = heatmap!(
+	        ax,
+	        x_centers,
+	        x_centers,
+	        P,
+	        colormap=ColorSchemes.cividis
+	    )
+
+		if !isnothing(environment)
+			for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
+				if !environment.grid[i, j, 3]
+					x = environment.grid[j, i, 1]
+					y = environment.grid[j, i, 2]
+		
+					# Draw a black square centered at (x, y)
+					rect = [
+						Point2f(x - Δx/2, y - Δx/2),
+						Point2f(x + Δx/2, y - Δx/2),
+						Point2f(x + Δx/2, y + Δx/2),
+						Point2f(x - Δx/2, y + Δx/2)
+					]
+					poly!(ax, rect, color=:black)
+				end
+			end
+		end
 	else
 		scatter!(ax, chain[:, "x₀[1]"], chain[:, "x₀[2]"],marker=:+)
 	end
@@ -1160,7 +1204,8 @@ function viz_robot_grid!(
 	chain_data::Union{Nothing, DataFrame}=nothing,
 	show_grid::Bool=true,
 	x₀::Union{Vector{Float64}, Nothing}=nothing,
-	scale_max::Real=1e2
+	scale_max::Real=1e2,
+	view_chain_as_hm::Bool=false
 )
     heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
 
@@ -1186,7 +1231,13 @@ function viz_robot_grid!(
 	end
 
 	if ! isnothing(chain_data)
-		viz_chain_data!(ax, chain_data, show_source=false)
+		hm = viz_chain_data!(
+			ax, 
+			chain_data, 
+			show_source=false, 
+			show_as_heatmap=view_chain_as_hm,
+			environment=environment
+		)
 	end
 
 	if !isnothing(data_collection)	
@@ -1198,9 +1249,15 @@ function viz_robot_grid!(
 		axislegend(ax, position=:lb)
 	end
 
-	if !isnothing(data_collection)	
-		return sc
+	visuals = Dict{Symbol, Any}()
+	if !isnothing(data_collection)
+		visuals[:sc] = sc
 	end
+	if view_chain_as_hm && !isnothing(chain_data)
+		visuals[:hm] = hm
+	end
+
+	return visuals
 end
 
 
@@ -1231,28 +1288,48 @@ function viz_robot_grid(
 	fig_size::Int=800,
 	show_grid::Bool=true,
 	x₀::Union{Vector{Float64}, Nothing}=nothing,
-	scale_max::Real=1e2
+	scale_max::Real=1e2,
+	view_chain_as_hm::Bool=false
 )
     fig = Figure(size=(fig_size, fig_size))
     ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
 
-	sc = viz_robot_grid!(
-	ax,
-	environment,
-	data_collection=data_collection,
-	chain_data=chain_data,
-	show_grid=show_grid,
-	x₀=x₀,
-	scale_max=scale_max
-)
+
+	visuals = viz_robot_grid!(
+		ax,
+		environment,
+		data_collection=data_collection,
+		chain_data=chain_data,
+		show_grid=show_grid,
+		x₀=x₀,
+		scale_max=scale_max,
+		view_chain_as_hm=view_chain_as_hm
+	)
+
 
 	if !isnothing(data_collection)
 		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
 		colorbar_tick_values[1] = 0.0
-
 		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
 
-		Colorbar(fig[1, 2], sc, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+		Colorbar(
+			fig[1, 2],
+			visuals[:sc],
+			label = "counts", 
+			ticks = (colorbar_tick_values, colorbar_tick_labels), 
+			ticklabelsize=25, 
+			labelsize=35)
+	end
+	
+	if view_chain_as_hm
+		Colorbar(
+			fig[2, 1], 
+		  	visuals[:hm],
+			label="posterior density",
+			ticklabelsize=20, 
+			labelsize=30,
+			width=fig_size * 0.75,  # scale for layout
+			vertical=false)
 	end
     return fig
 end
@@ -1372,7 +1449,12 @@ function viz_chain_data(
 	
 	fig = Figure(size = (res, res))
 	ax = Axis(fig[1, 1], aspect=DataAspect())
-	viz_chain_data!(ax, chain, show_source=show_source, show_as_heatmap=show_as_heatmap)
+	viz_chain_data!(
+		ax, 
+		chain, 
+		show_source=show_source, 
+		show_as_heatmap=show_as_heatmap
+	)
 
 	if !isnothing(path_data)
 		sc = viz_path!(ax, path_data, scale_max=scale_max)
@@ -1389,9 +1471,6 @@ function viz_chain_data(
 	
 	return fig
 end
-
-# ╔═╡ e7567ef6-edaa-4061-9457-b04895a2fca2
-x_bin_centers = edges_to_centers()
 
 # ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
 md"## `Visualize` - Posterior"
@@ -1637,12 +1716,6 @@ chain = DataFrame(
 
 # ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
  viz_chain_data(chain, show_as_heatmap=true)
-
-# ╔═╡ e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-P = chain_to_P(chain)
-
-# ╔═╡ bd0a5555-cbe5-42ae-b527-f62cd9eff22f
-heatmap(x_bin_centers, x_bin_centers, P)
 
 # ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
 viz_posterior(chain)
@@ -2825,7 +2898,13 @@ begin
 end
 
 # ╔═╡ 11df326c-8cda-4075-be87-c96d94baaec2
-viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)], show_grid=false, x₀=[250.0, 250.0])
+viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
+
+# ╔═╡ e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
+viz_num=20
+
+# ╔═╡ 7ec5c32b-a459-4af1-b056-5ce81acab80b
+viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -2872,6 +2951,7 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chai
 # ╠═6d4e86ae-701c-443e-9d05-0cc123adbc29
 # ╠═45014b50-c04b-4f42-83c3-775ec6cd6e3f
 # ╠═66d5216d-66a8-4e33-9f36-54a0d4ec4459
+# ╠═b48a8a94-7791-4e10-9a6b-1c6f2eca7968
 # ╠═b63d1384-02ef-45c6-80c8-fdfd54ce6804
 # ╠═d47b2021-7129-4a31-8585-2c7257489b1a
 # ╟─849ef8ce-4562-4353-8ee5-75d28b1ac929
@@ -2904,15 +2984,14 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chai
 # ╠═13ff8f6a-7bb2-41a0-83ac-7c9fca962605
 # ╟─21486862-b3c2-4fcc-98b2-737dcc5211fb
 # ╠═2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
+# ╠═2b656540-9228-4d8a-9db1-1c0bec3d33f3
 # ╠═0a39daaa-2c20-471d-bee3-dcc06554cf78
+# ╠═a8281a0d-2b9c-40d7-802a-ca434ba602f9
+# ╠═9dd28728-f8de-43bb-8e0c-e7384f924adc
 # ╠═ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
 # ╟─65d603f4-4ef6-4dff-92c1-d6eef535e67e
-# ╠═6da11e28-c276-4f45-a1aa-2c86ab26c85a
-# ╠═50830491-6285-4915-b59a-fa5bb7298e51
-# ╠═065befd1-f652-4925-b1b2-4e847a3884dd
-# ╠═e1303ce3-a8a3-4ac1-8137-52d32bf222e2
-# ╠═e7567ef6-edaa-4061-9457-b04895a2fca2
-# ╠═bd0a5555-cbe5-42ae-b527-f62cd9eff22f
+# ╠═10c62123-4ae4-4688-87e1-9b0397c75e88
+# ╠═8853858d-1d47-40c9-94a4-c912ad00af5d
 # ╟─aa72cf61-839d-4707-95c8-0a9230e77d56
 # ╠═f4d234f9-70af-4a89-9a57-cbc524ec52b4
 # ╠═4bb02313-f48b-463e-a5b6-5b40fba57e81
@@ -2976,3 +3055,5 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chai
 # ╠═7647103a-27fe-436a-87cf-301b52195174
 # ╠═4e9e816b-dae3-4a6e-9453-f925ac70f140
 # ╠═11df326c-8cda-4075-be87-c96d94baaec2
+# ╠═e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
+# ╠═7ec5c32b-a459-4af1-b056-5ce81acab80b
