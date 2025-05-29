@@ -2901,7 +2901,7 @@ end
 viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
 
 # ╔═╡ e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
-viz_num=20
+viz_num=32
 
 # ╔═╡ 7ec5c32b-a459-4af1-b056-5ce81acab80b
 viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
