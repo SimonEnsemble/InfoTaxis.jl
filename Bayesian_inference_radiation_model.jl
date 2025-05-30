@@ -2661,9 +2661,7 @@ function get_next_sample(
 	environment::Environment;
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
-	I::Float64=I,
 	allow_overlap::Bool=false,
-	x₀::Vector{Float64}=[250.0, 250.0],
 	save_chains::Bool=false,
 	exploring_start::Bool=true,
 	num_exploring_start_steps::Int=10,
@@ -2838,9 +2836,7 @@ function sim_exp(
             environment;
             num_mcmc_samples=num_mcmc_samples,
             num_mcmc_chains=num_mcmc_chains,
-            I=I,
             allow_overlap=allow_overlap,
-            x₀=x₀,
             save_chains=save_chains,
             exploring_start=exploring_start,
             num_exploring_start_steps=num_exploring_start_steps,
@@ -2889,19 +2885,27 @@ end
 # ╔═╡ 7647103a-27fe-436a-87cf-301b52195174
 exp_test, exp_chains = sim_exp(500, grid_env, save_chains=true)
 
+# ╔═╡ 4b0e6a4c-c6b8-4347-b960-8f9b5ff318d4
+exp_test
+
+# ╔═╡ 3277b87e-f8b4-49cb-bcb6-50ffb91f2145
+get_next_sample(exp_test, grid_env)
+
 # ╔═╡ 4e9e816b-dae3-4a6e-9453-f925ac70f140
+#= #UNCOMMENT TO SAVE PICTURES FOR EVERY STEP OF THE EXPERIMENTAL SIMULATION
 begin
 	for i=1:length(exp_chains)
 		fig = viz_robot_grid(grid_env, data_collection=exp_test[1:i, :], chain_data=exp_chains[i], show_grid=false, x₀=[250.0, 250.0])
 		save("exp_j$(i).png", fig)
 	end
 end
+=#
 
 # ╔═╡ 11df326c-8cda-4075-be87-c96d94baaec2
 viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
 
 # ╔═╡ e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
-viz_num=32
+viz_num=34
 
 # ╔═╡ 7ec5c32b-a459-4af1-b056-5ce81acab80b
 viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
@@ -3053,6 +3057,8 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_
 # ╟─28f3b421-6f09-4b52-a032-f67542b1efab
 # ╠═195b34df-026e-4c02-86c5-7a21c689869f
 # ╠═7647103a-27fe-436a-87cf-301b52195174
+# ╠═4b0e6a4c-c6b8-4347-b960-8f9b5ff318d4
+# ╠═3277b87e-f8b4-49cb-bcb6-50ffb91f2145
 # ╠═4e9e816b-dae3-4a6e-9453-f925ac70f140
 # ╠═11df326c-8cda-4075-be87-c96d94baaec2
 # ╠═e5ba01be-75c3-4f64-959d-bcdf3f49a8cb

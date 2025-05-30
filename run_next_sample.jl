@@ -1,0 +1,23 @@
+# run_next_sample.jl
+include("src/LoadData.jl")
+include("src/ExperimentSpace.jl") 
+
+
+using .ExperimentSpace, .LoadData, LinearAlgebra, Turing, SpecialFunctions, DataFrames, StatsBase, Distributions, JLD2, Logging, CSV
+
+walls_path = ARGS[1]
+data_path = ARGS[2]
+step = parse(Int, ARGS[3])
+
+# Load environment
+env_matrix = LoadData.parse_numpy_csv_file(walls_path)
+environment = LoadData.generate_robot_grid_matrix(env_matrix, step)
+
+# Load observed data
+df = CSV.read(data_path, DataFrame)
+
+# Run inference and get next sample point
+next = get_next_sample(df, environment)
+
+# Output result
+println("Next sample at: $(next[1]), $(next[2])")

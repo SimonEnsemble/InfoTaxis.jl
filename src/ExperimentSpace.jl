@@ -185,9 +185,7 @@ Using Thompson sampling and exploration methods, provide the next location where
 # keyword arguments
 * `num_mcmc_samples::Int64=100` - the number of MCMC samples per simulation.
 * `num_mcmc_chains::Int64=1` - the number of chains of MCMC simulations.
-* `I::Float64=I` - source strength.
 * `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
-* `x₀::Vector{Float64}=[250.0, 250.0]` - source location, this tells the simulation to stop if the current location is within environment.Δx of x₀.
 * `save_chains::Bool=false` - set to true to save the MCMC simulation chain data for every step.
 * `exploring_start::Bool=true` - if set to false, will begin by taking single steps only towards the greedy choice from Thompson sampling, otherwise will take decreasingly large steps.
 * `num_exploring_start_steps::Int=10` - controls the size and number of exploring start steps. For example, a value of 10 will make the robot take 10 steps initially, followed by 9, then 8 etc...
@@ -203,9 +201,7 @@ function get_next_sample(
 	environment;
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
-	I::Float64=I,
 	allow_overlap::Bool=false,
-	x₀::Vector{Float64}=[250.0, 250.0],
 	save_chains::Bool=false,
 	exploring_start::Bool=true,
 	num_exploring_start_steps::Int=10,
@@ -213,7 +209,7 @@ function get_next_sample(
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
 	disable_log::Bool=true,
-	turn_off_explore_threshold::Real=5
+	turn_off_explore_threshold::Real=4
 )
 	#this is needed for src file where type assertions for structs get weird
 	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
@@ -380,9 +376,7 @@ function sim_exp(
             environment;
             num_mcmc_samples=num_mcmc_samples,
             num_mcmc_chains=num_mcmc_chains,
-            I=I,
             allow_overlap=allow_overlap,
-            x₀=x₀,
             save_chains=save_chains,
             exploring_start=exploring_start,
             num_exploring_start_steps=num_exploring_start_steps,
