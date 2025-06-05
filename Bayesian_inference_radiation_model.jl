@@ -47,8 +47,8 @@ begin
         rad_sim,
         robot_starts;
         exploring_start=true,
-        num_exploring_start_steps=[5],
-        r_check=[60],
+        num_exploring_start_steps=5,
+        r_check=60.0,
         filename="just_some_test"
     )
 end
