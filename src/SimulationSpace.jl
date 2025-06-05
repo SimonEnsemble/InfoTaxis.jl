@@ -614,7 +614,7 @@ function run_batch(
 	obstructions=nothing,
 	exploring_start::Bool=true,
 	num_exploring_start_steps::Int=15,
-	spiral::Bool=true,
+	spiral::Bool=false,
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
 	meas_time::Float64=1.0,
