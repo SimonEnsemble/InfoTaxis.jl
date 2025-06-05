@@ -443,7 +443,9 @@ function simulate(
 
 	# exploration parameters
 	if spiral
-		spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=2)
+		#TODO - ADD SPIRAL FUNCTIONALITY
+		error("SPIRAL FUNCTIONALITY NOT YET IMPLEMENTED HERE!")
+		#spiral_control = init_spiral(copy(robot_path[end]), step_init=1, step_incr=2)
 	end
 	if exploring_start
 		expl_start_steps = [num_exploring_start_steps - i >= 1 ? num_exploring_start_steps - i : 1 for i in 0:num_steps-1]
