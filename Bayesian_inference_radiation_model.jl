@@ -39,9 +39,18 @@ md"## QUICK SRC TESTS"
 
 # ╔═╡ 64830991-da9b-4d5d-a0db-3030d9461a8d
 begin
-	local robot_starts = SimulationSpace.gen_sample_starts(num_samples=15)
+	local robot_starts = SimulationSpace.gen_sample_starts(num_samples=2)
 	local file = joinpath(joinpath(@__DIR__, "sim_data"), "meshtap")
 	local rad_sim = LoadData.import_data(file)
+
+	    SimulationSpace.run_batch(
+        rad_sim,
+        robot_starts;
+        exploring_start=true,
+        num_exploring_start_steps=[5],
+        r_check=[60],
+        filename="just_some_test"
+    )
 end
 
 # ╔═╡ 52d76437-0d60-4589-996f-461eecf0d45d

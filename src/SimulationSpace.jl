@@ -601,7 +601,7 @@ For each initial robot position in `robot_starts`, the function runs the localiz
 * `Vector{DataFrame}` – A list of simulation trajectories, one per replicate, each containing time, position, and counts.
 """
 function run_batch(
-	rad_sim::RadSim, 
+	rad_sim, 
 	robot_starts::Vector{Vector{Int64}}; 
 	num_mcmc_samples::Int64=150,
 	num_mcmc_chains::Int64=4,
