@@ -43,12 +43,13 @@ begin
 	local file = joinpath(joinpath(@__DIR__, "sim_data"), "meshtap")
 	local rad_sim = LoadData.import_data(file)
 
-	SimulationSpace.run_batch(
+	src_batch_test = SimulationSpace.run_batch(
         rad_sim,
         robot_starts;
         exploring_start=true,
         num_exploring_start_steps=5,
         r_check=60.0,
+		num_replicates=1,
         filename="just_some_test"
     )
 end
