@@ -28,10 +28,21 @@ begin
 	SimulationSpace = include(joinpath("src", "SimulationSpace.jl"))
 	RadModelStructs = include(joinpath("src", "RadModelStructs.jl"))
 	ExperimentSpace = include(joinpath("src", "ExperimentSpace.jl"))
+	LoadData = include(joinpath("src", "LoadData.jl"))
 end
 
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
+
+# ╔═╡ 2d9fc926-9ed0-4a29-8f5c-d57a7b2300fe
+md"## QUICK SRC TESTS"
+
+# ╔═╡ 64830991-da9b-4d5d-a0db-3030d9461a8d
+begin
+	local robot_starts = SimulationSpace.gen_sample_starts(num_samples=15)
+	local file = joinpath(joinpath(@__DIR__, "sim_data"), "meshtap")
+	local rad_sim = LoadData.import_data(file)
+end
 
 # ╔═╡ 52d76437-0d60-4589-996f-461eecf0d45d
 md"""
@@ -40,6 +51,9 @@ md"""
 
 # ╔═╡ e5b1369e-0b4b-4da3-9c95-07ceda11b31d
 md"## constants"
+
+# ╔═╡ f639c03d-bdc3-43e5-b864-3277bbf02273
+@__DIR__
 
 # ╔═╡ 064eb92e-5ff0-436a-8a2b-4a233ca4fa42
 begin
@@ -81,6 +95,9 @@ begin
 	λ_background = 0.5 #Poisson distr lambda val for noise
 
 end
+
+# ╔═╡ dd15ee55-76cd-4d56-b4a6-aa46212c176b
+data_files
 
 # ╔═╡ b8d6c195-d639-4438-8cab-4dcd99ea2547
 function attenuation_constant(x::Vector{Float64}, x₀; Σ::Float64=Σ_air)
@@ -2914,9 +2931,13 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
 # ╠═a03021d8-8de2-4c38-824d-8e0cb571b9f1
+# ╟─2d9fc926-9ed0-4a29-8f5c-d57a7b2300fe
+# ╠═64830991-da9b-4d5d-a0db-3030d9461a8d
 # ╟─52d76437-0d60-4589-996f-461eecf0d45d
 # ╟─e5b1369e-0b4b-4da3-9c95-07ceda11b31d
+# ╠═f639c03d-bdc3-43e5-b864-3277bbf02273
 # ╠═064eb92e-5ff0-436a-8a2b-4a233ca4fa42
+# ╠═dd15ee55-76cd-4d56-b4a6-aa46212c176b
 # ╠═b8d6c195-d639-4438-8cab-4dcd99ea2547
 # ╟─82577bab-5ce9-4164-84db-9cfa28b501b0
 # ╟─a9c65b66-eb92-4943-91a9-9d0ea6cfa3d3
