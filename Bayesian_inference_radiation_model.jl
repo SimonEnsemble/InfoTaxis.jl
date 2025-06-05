@@ -43,7 +43,7 @@ begin
 	local file = joinpath(joinpath(@__DIR__, "sim_data"), "meshtap")
 	local rad_sim = LoadData.import_data(file)
 
-	    SimulationSpace.run_batch(
+	SimulationSpace.run_batch(
         rad_sim,
         robot_starts;
         exploring_start=true,
