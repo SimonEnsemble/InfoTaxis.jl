@@ -31,6 +31,11 @@ begin
 	LoadData = include(joinpath("src", "LoadData.jl"))
 end
 
+# ╔═╡ 4358f533-5944-406f-80a1-c08f99610d5b
+Threads.@threads for i=1:10
+	print(i)
+end
+
 # ╔═╡ 54b50777-cfd7-43a3-bcc2-be47f117e635
 TableOfContents()
 
@@ -256,6 +261,53 @@ end
 # ╔═╡ a092d5de-8828-4fa6-8ef5-fb0838cc0887
 obstructions = example_obstructions()
 
+# ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
+"""
+Helper function used by `import_data()` to convert the dictionary read from the text file into dictionary containing the components necessary to make a RadSim struct.
+
+# arguments
+* `data::Dict` - the dictionary made within `import_data()` that contains keys:
+`"y_bin_bounds"`, `"Δxy"`, `"z_bin_bounds"`, `"Δz"`, `"Lxy"`, `"Lz"`, `"energy_field_data"`
+"""
+function get_matrix_params(data::Dict)
+
+	parameters = Dict()
+
+	#Δx,y and L parameters
+	Δxy = data["y_bin_bounds"][2] - data["y_bin_bounds"][1]
+	parameters["Δxy"] = Δxy
+	Δz = data["z_bin_bounds"][2] - data["z_bin_bounds"][1]
+	parameters["Δz"] = Δz 
+	parameters["Lxy"] = (length(data["x_bin_bounds"])-1) * Δxy
+	parameters["Lz"] = (length(data["z_bin_bounds"])-1) * Δz
+
+	#assert square grid
+	@assert Δxy == data["x_bin_bounds"][2] - data["x_bin_bounds"][1] "x and y should have the same grid spacing!"
+	
+
+	norm_gamma_matrix = zeros(length(data["x_bin_bounds"])-1,
+							 length(data["y_bin_bounds"])-1,
+							 length(data["z_bin_bounds"])-1
+							 )
+
+
+	for row in eachrow(data["energy_field_data"])
+		x_start = data["x_bin_bounds"][1]
+		y_start = data["y_bin_bounds"][1]
+		z_start = data["z_bin_bounds"][1]
+	    # Compute indices from coordinates
+	    i = Int(round((row["X"] - x_start) / Δxy + 0.5))
+	    j = Int(round((row["Y"] - y_start)  / Δxy + 0.5))
+	    k = Int(round((row["Z"] - z_start)  / Δz + 0.5))
+	
+		norm_gamma_matrix[i, j, k] = row["Result"]
+	end
+
+	parameters["γ_matrix"] = norm_gamma_matrix
+
+	return parameters
+end
+
 # ╔═╡ e62ba8da-663a-4b58-afe6-910710d7518e
 """
 Reads the lines of the simulation data file provided by the radiation team at path: `data_file_path::String` and returns a RadSim data struct.
@@ -368,53 +420,6 @@ function import_data(data_file_path::String; x₀::Vector{Float64}=[250.0, 250.0
 	return rad_sim
 end
 
-# ╔═╡ 19c95a83-670c-4ad6-82a1-5a4b6809f1d4
-"""
-Helper function used by `import_data()` to convert the dictionary read from the text file into dictionary containing the components necessary to make a RadSim struct.
-
-# arguments
-* `data::Dict` - the dictionary made within `import_data()` that contains keys:
-`"y_bin_bounds"`, `"Δxy"`, `"z_bin_bounds"`, `"Δz"`, `"Lxy"`, `"Lz"`, `"energy_field_data"`
-"""
-function get_matrix_params(data::Dict)
-
-	parameters = Dict()
-
-	#Δx,y and L parameters
-	Δxy = data["y_bin_bounds"][2] - data["y_bin_bounds"][1]
-	parameters["Δxy"] = Δxy
-	Δz = data["z_bin_bounds"][2] - data["z_bin_bounds"][1]
-	parameters["Δz"] = Δz 
-	parameters["Lxy"] = (length(data["x_bin_bounds"])-1) * Δxy
-	parameters["Lz"] = (length(data["z_bin_bounds"])-1) * Δz
-
-	#assert square grid
-	@assert Δxy == data["x_bin_bounds"][2] - data["x_bin_bounds"][1] "x and y should have the same grid spacing!"
-	
-
-	norm_gamma_matrix = zeros(length(data["x_bin_bounds"])-1,
-							 length(data["y_bin_bounds"])-1,
-							 length(data["z_bin_bounds"])-1
-							 )
-
-
-	for row in eachrow(data["energy_field_data"])
-		x_start = data["x_bin_bounds"][1]
-		y_start = data["y_bin_bounds"][1]
-		z_start = data["z_bin_bounds"][1]
-	    # Compute indices from coordinates
-	    i = Int(round((row["X"] - x_start) / Δxy + 0.5))
-	    j = Int(round((row["Y"] - y_start)  / Δxy + 0.5))
-	    k = Int(round((row["Z"] - z_start)  / Δz + 0.5))
-	
-		norm_gamma_matrix[i, j, k] = row["Result"]
-	end
-
-	parameters["γ_matrix"] = norm_gamma_matrix
-
-	return parameters
-end
-
 # ╔═╡ 8ffaf344-1c74-48c8-a116-8c937322cd6e
 md"""
 ## import radiation simulation data
@@ -433,44 +438,6 @@ end
 md"""
 ## `Visualize` - Imported Data
 """
-
-# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
-"""
-Visualize simulated radiation data provided by the radiation team.
-
-# arguments
-* `rad_sim::RadSim` - the radiation simulation data structure after being imported.
-# keyword arguments
-* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - optional obstruction data, if provided obstructions will be visualized as teal blocks.
-"""
-function viz_model_data(
-	rad_sim::RadSim; 
-	z_slice::Int64=1, 
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
-)
-	fig = Figure()
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂"
-	)
-
-	#convert normalized gammas to counts
-	counts_I = I * rad_sim.γ_matrix[z_slice]
-	
-	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
-
-	#establish logarithmic colorbar tick values
-	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
-	colorbar_tick_values[1] = 0.0
-	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-
-	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
-	
-	fig
-end
 
 # ╔═╡ 173feaf5-cbfa-4e94-8de5-1a5311cdf14e
 """
@@ -538,6 +505,44 @@ function viz_model_data!(
 	end
 	
 	return hm
+end
+
+# ╔═╡ 63c8b6dd-d12a-42ec-ab98-1a7c6a991dbd
+"""
+Visualize simulated radiation data provided by the radiation team.
+
+# arguments
+* `rad_sim::RadSim` - the radiation simulation data structure after being imported.
+# keyword arguments
+* `z_slice::Int64=1` - change to change the z slice of the data, unless the data has more than 2-dimensional data, just keep as 1.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - optional obstruction data, if provided obstructions will be visualized as teal blocks.
+"""
+function viz_model_data(
+	rad_sim::RadSim; 
+	z_slice::Int64=1, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+	fig = Figure()
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂"
+	)
+
+	#convert normalized gammas to counts
+	counts_I = I * rad_sim.γ_matrix[z_slice]
+	
+	hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
+
+	#establish logarithmic colorbar tick values
+	colorbar_tick_values = [10.0^e for e in range(0, log10(maximum(counts_I)), length=6)]
+	colorbar_tick_values[1] = 0.0
+	colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+	Colorbar(fig[1, 2], hm, label = "counts / s", ticks = (colorbar_tick_values, colorbar_tick_labels))
+	
+	fig
 end
 
 # ╔═╡ 1f12fcd1-f962-45e9-8c07-4f42f869d6a0
@@ -719,166 +724,6 @@ md"""
 # ╔═╡ 6d4e86ae-701c-443e-9d05-0cc123adbc29
 grid_env
 
-# ╔═╡ 45014b50-c04b-4f42-83c3-775ec6cd6e3f
-"""
-Visualizes the robot's search grid over the environment, including optional overlays of data collection paths, posterior samples, and the true source location.
-
-This function renders a heatmap of the environment’s layout and optionally overlays valid sampling grid points, the robot’s movement path and measurements, posterior samples from MCMC chains, and the ground truth source location.
-
-# arguments
-* `environment::Environment` – The environment struct generated by `generate_robot_grid_matrix()`. It must contain a field `grid` of type `Array{Union{Bool, Int64}, 3}`, where the first two entries are the x and y coordinates of grid locations and the third entry is a Boolean indicating accessibility.
-
-# keyword arguments
-* `data_collection::Union{DataFrame, Nothing}=nothing` – A DataFrame containing the robot’s path and measured radiation values; used to visualize the robot’s trajectory.
-* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional posterior chain data used to visualize source belief distributions (via `viz_chain_data!`).
-* `fig_size::Int=800` – Controls the pixel resolution of the output figure.
-* `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
-* `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
-* `scale_max::Float64=1e5` - the max source strength for the color bar.
-
-# returns
-* `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
-"""
-function viz_robot_grid(
-	environment::Environment; 
-	data_collection::Union{DataFrame, Nothing}=nothing,
-	chain_data::Union{Nothing, DataFrame}=nothing,
-	fig_size::Int=800,
-	show_grid::Bool=true,
-	x₀::Union{Vector{Float64}, Nothing}=nothing,
-	scale_max::Real=1e2,
-	view_chain_as_hm::Bool=false
-)
-    fig = Figure(size=(fig_size, fig_size))
-    ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
-
-
-	visuals = viz_robot_grid!(
-		ax,
-		environment,
-		data_collection=data_collection,
-		chain_data=chain_data,
-		show_grid=show_grid,
-		x₀=x₀,
-		scale_max=scale_max,
-		view_chain_as_hm=view_chain_as_hm
-	)
-
-
-	if !isnothing(data_collection)
-		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
-		colorbar_tick_values[1] = 0.0
-		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-
-		Colorbar(
-			fig[1, 2],
-			visuals[:sc],
-			label = "counts", 
-			ticks = (colorbar_tick_values, colorbar_tick_labels), 
-			ticklabelsize=25, 
-			labelsize=35)
-	end
-	
-	if view_chain_as_hm
-		Colorbar(
-			fig[2, 1], 
-		  	visuals[:hm],
-			label="posterior density",
-			ticklabelsize=20, 
-			labelsize=30,
-			width=fig_size * 0.75,  # scale for layout
-			vertical=false)
-	end
-    return fig
-end
-
-
-# ╔═╡ 66d5216d-66a8-4e33-9f36-54a0d4ec4459
-"""
-Helper function for viz_robot_grid().
-
-Visualizes the robot's search grid over the environment, including optional overlays of data collection paths, posterior samples, and the true source location.
-
-This function renders a heatmap of the environment’s layout and optionally overlays valid sampling grid points, the robot’s movement path and measurements, posterior samples from MCMC chains, and the ground truth source location.
-
-# arguments
-* `environment::Environment` – The environment struct generated by `generate_robot_grid_matrix()`. It must contain a field `grid` of type `Array{Union{Bool, Int64}, 3}`, where the first two entries are the x and y coordinates of grid locations and the third entry is a Boolean indicating accessibility.
-
-# keyword arguments
-* `data_collection::Union{DataFrame, Nothing}=nothing` – A DataFrame containing the robot’s path and measured radiation values; used to visualize the robot’s trajectory.
-* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional posterior chain data used to visualize source belief distributions (via `viz_chain_data!`).
-* `fig_size::Int=800` – Controls the pixel resolution of the output figure.
-* `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
-* `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
-* `scale_max::Float64=1e5` - the max source strength for the color bar.
-
-# returns
-* `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
-"""
-function viz_robot_grid!(
-	ax,
-	environment::Environment; 
-	data_collection::Union{DataFrame, Nothing}=nothing,
-	chain_data::Union{Nothing, DataFrame}=nothing,
-	show_grid::Bool=true,
-	x₀::Union{Vector{Float64}, Nothing}=nothing,
-	scale_max::Real=1e2,
-	view_chain_as_hm::Bool=false
-)
-    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
-
-    n_valid = count(environment.grid[:, :, 3] .== true)
-
-    xs = zeros(Float64, n_valid)
-    ys = zeros(Float64, n_valid)
-
-    idx = 1
-	if show_grid
-		#loop through the grid and add true values to the scatter plot
-	    for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
-	        if environment.grid[j, i, 3] == true
-	            xs[idx] = environment.grid[i, j, 1]
-	            ys[idx] = environment.grid[i, j, 2]
-	            idx += 1
-	        end
-	    end
-		scatter!(ax, xs, ys; color = :cyan, markersize = 10, label="search grid sampling point")
-		if isnothing(x₀)
-			axislegend(ax, position=:lb)
-		end
-	end
-
-	if ! isnothing(chain_data)
-		hm = viz_chain_data!(
-			ax, 
-			chain_data, 
-			show_source=false, 
-			show_as_heatmap=view_chain_as_hm,
-			environment=environment
-		)
-	end
-
-	if !isnothing(data_collection)	
-		sc = viz_path!(ax, data_collection, scale_max=1e2)
-	end
-
-	if !isnothing(x₀)
-		scatter!(ax, [x₀[1]], [x₀[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
-		axislegend(ax, position=:lb)
-	end
-
-	visuals = Dict{Symbol, Any}()
-	if !isnothing(data_collection)
-		visuals[:sc] = sc
-	end
-	if view_chain_as_hm && !isnothing(chain_data)
-		visuals[:hm] = hm
-	end
-
-	return visuals
-end
-
-
 # ╔═╡ b48a8a94-7791-4e10-9a6b-1c6f2eca7968
 function resize_env_mask_to_posterior(env_mask, post_n::Int)
     env_n = size(env_mask, 1)
@@ -898,9 +743,6 @@ end
 
 # ╔═╡ b63d1384-02ef-45c6-80c8-fdfd54ce6804
 grid_env.grid
-
-# ╔═╡ d47b2021-7129-4a31-8585-2c7257489b1a
-viz_robot_grid(grid_env)
 
 # ╔═╡ 849ef8ce-4562-4353-8ee5-75d28b1ac929
 md"# Analytical (Poisson) Model"
@@ -934,6 +776,46 @@ end
 md"""
 ## `Visualize` - Analytical Model
 """
+
+# ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
+"""
+`viz_c_analytical` helper function, Visualizes a field of radiation strength values as expected counts per second using an analytical Poisson model.
+
+
+# arguments
+* `ax` - Cairo Makie axis.
+* `color_scale::ReversibleScale` - the non-linear color scale.
+# keyword arguments
+* `fig_size::Int=500` - resolution control.
+* `L::Float64=1000.0` - size of the grid space.
+* `x₀::Vector{Float64}=[251.0, 251.0]` - source location. This is used to calculate strength.
+* `I::Float64=1.16365e10` - source strength.
+* `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+"""
+function viz_c_analytical!(
+	ax, color_scale::ReversibleScale; 
+	fig_size::Int=500, 
+	L::Float64=1000.0, 
+	x₀::Vector{Float64}=[251.0, 251.0], 
+	I::Float64=1.16365e10, 
+	source::Union{Nothing, Vector{Float64}}=x₀, 
+	scale_max::Float64=1e5
+)
+	#colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
+
+	xs = collect(0.0:Δx:L)
+	counts = [mean(count_Poisson([x₁, x₂], x₀, I)) for x₁ in xs, x₂ in xs] # counts
+
+	hm = heatmap!(ax, xs, xs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
+
+	if ! isnothing(source)
+		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=10, label="source", strokewidth=1)
+		axislegend(ax, position=:rb)
+	end
+
+	return hm, counts
+end
 
 # ╔═╡ 6fa37ac5-fbc2-43c0-9d03-2d194e136951
 """
@@ -981,46 +863,6 @@ function viz_c_analytical(;
 	fig
 end
 
-# ╔═╡ 0175ede7-b2ab-4ffd-8da1-278120591027
-"""
-`viz_c_analytical` helper function, Visualizes a field of radiation strength values as expected counts per second using an analytical Poisson model.
-
-
-# arguments
-* `ax` - Cairo Makie axis.
-* `color_scale::ReversibleScale` - the non-linear color scale.
-# keyword arguments
-* `fig_size::Int=500` - resolution control.
-* `L::Float64=1000.0` - size of the grid space.
-* `x₀::Vector{Float64}=[251.0, 251.0]` - source location. This is used to calculate strength.
-* `I::Float64=1.16365e10` - source strength.
-* `source::Union{Nothing, Vector{Float64}}=x₀` - source location. Set to nothing to remove the scatter plot visual of the source.
-* `scale_max::Float64=1e5` - the max source strength for the color bar.
-"""
-function viz_c_analytical!(
-	ax, color_scale::ReversibleScale; 
-	fig_size::Int=500, 
-	L::Float64=1000.0, 
-	x₀::Vector{Float64}=[251.0, 251.0], 
-	I::Float64=1.16365e10, 
-	source::Union{Nothing, Vector{Float64}}=x₀, 
-	scale_max::Float64=1e5
-)
-	#colormap = reverse([ColorSchemes.hot[i] for i in 0.0:0.05:1])
-
-	xs = collect(0.0:Δx:L)
-	counts = [mean(count_Poisson([x₁, x₂], x₀, I)) for x₁ in xs, x₂ in xs] # counts
-
-	hm = heatmap!(ax, xs, xs, counts, colormap=colormap, colorscale = color_scale, colorrange=(0, scale_max))
-
-	if ! isnothing(source)
-		scatter!(ax, [source[1]], [source[2]], color="red", marker=:xcross, markersize=10, label="source", strokewidth=1)
-		axislegend(ax, position=:rb)
-	end
-
-	return hm, counts
-end
-
 # ╔═╡ 5b9aaaeb-dbb3-4392-a3a1-ccee94d75fed
 viz_c_analytical(scale_max = 1.0*10^6)
 
@@ -1029,6 +871,26 @@ md"# Simulate Movement"
 
 # ╔═╡ 015b9f4d-09b8-49f3-bc03-2fd3b972e933
 md"## sample environment"
+
+# ╔═╡ bfe17543-7b54-4f52-9679-f723adafdbdd
+md"## movement"
+
+# ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
+"""
+Given the grid spacing, provides an index given the provided position vector.
+
+# arguments
+* `pos::Vector{Float64}` - current position for which you want the corresponding index.
+# keyword arguments
+* `Δx::Float64=10.0` - grid spacing.
+# returns
+* `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
+"""
+function pos_to_index(pos::AbstractVector{<:Real}; Δx::Real=10.0)
+    x₁ = Int(floor((pos[1]) / Δx)) + 1
+    x₂ = Int(floor((pos[2]) / Δx)) + 1
+    return (x₁, x₂)
+end
 
 # ╔═╡ 126df6ec-9074-4712-b038-9371ebdbc51d
 """
@@ -1055,26 +917,6 @@ function sample_model(x::Vector{Float64}, rad_sim::RadSim; I::Float64=I, Δx::Fl
 	measurement = max(measurement, 0)
 
 	return round(Int, measurement)
-end
-
-# ╔═╡ bfe17543-7b54-4f52-9679-f723adafdbdd
-md"## movement"
-
-# ╔═╡ 83052e75-db08-4e0a-8c77-35487c612dae
-"""
-Given the grid spacing, provides an index given the provided position vector.
-
-# arguments
-* `pos::Vector{Float64}` - current position for which you want the corresponding index.
-# keyword arguments
-* `Δx::Float64=10.0` - grid spacing.
-# returns
-* `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
-"""
-function pos_to_index(pos::AbstractVector{<:Real}; Δx::Real=10.0)
-    x₁ = Int(floor((pos[1]) / Δx)) + 1
-    x₂ = Int(floor((pos[2]) / Δx)) + 1
-    return (x₁, x₂)
 end
 
 # ╔═╡ c6c39d74-4620-43df-8eb1-83c436924530
@@ -1125,173 +967,8 @@ function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol; Δx::Floa
 	push!(robot_path, robot_path[end] + Δ)
 end
 
-# ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
-"""
-Moves the robot `n` times in a specified direction by modifying the robot path in-place.
-
-This function either performs `n` individual steps or one aggregated movement of `n × Δx`, depending on the `one_step` flag. Movement halts early if it would result in collision with an obstruction or leave the defined environment bounds.
-
-# arguments
-* `robot_path::Vector{Vector{Float64}}` – The robot's current path, with the last element representing its current position.
-* `direction::Symbol` – The direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
-* `n::Int` – The number of steps to move.
-
-# keyword arguments
-* `Δx::Float64=Δx` – The grid spacing value.
-* `one_step::Bool=false` – If `true`, moves the robot `n` steps in one large movement. If `false`, moves one step at a time, allowing for intermediate checks or measurements.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions; movement will halt if any are encountered.
-* `L::Float64=1000.0` – The length of the square environment; movement outside this boundary is not allowed.
-
-# modifies
-* `robot_path` – Updated in-place with the new robot position(s), depending on movement conditions and the `one_step` setting.
-"""
-function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
-		if one_step
-			pos = copy(robot_path[end])
-   			Δ = get_Δ(direction; Δx=Δx)
-
-			for _ in 1:n
-        		candidate = pos .+ Δ
-        		if obstructions !== nothing && any(
-						overlaps(
-							candidate, obs
-						) for obs in obstructions
-					)
-           	 		break
-				elseif any(x -> x <= 0.0 || x >= L, candidate)
-					break
-        		end
-				#need to add logic  to make sure we're not moving off map i.e. candidate can't be greater than L or less than 0
-        		pos .= candidate
-    		end
-			push!(robot_path, pos)
-		else
-			for i = 1:n
-				move!(robot_path, direction, Δx=Δx)
-			end
-		end
-	end
-
-# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
-begin
-	#Δx = 10.0 # m (step length for robot)
-	robot_path = [[0.0, 0.0]] # begin at origin
-	
-	move!(robot_path, :up, 5)
-	move!(robot_path, :right, 7)
-	move!(robot_path, :up, 10)
-	move!(robot_path, :right, 15)
-	
-	data = DataFrame(
-		"time" => 1:length(robot_path),
-		"x [m]" => robot_path,
-		"counts" => [sample_model(x, test_rad_sim, I=I) for x in robot_path]
-	)
-end
-
 # ╔═╡ de738002-3e80-4aab-bedb-f08533231ed7
 md"## `Visualize` - Movement and Measurement"
-
-# ╔═╡ dac856e6-f651-49d0-994e-46c8296a3d30
-data
-
-# ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
-"""
-Visualizes the robot path, measurement locations, and optionally the radiation field, source location, obstructions, and MCMC posterior data on a 2D plot.
-
-This function overlays data collected during a simulation on top of a spatial map. If provided, it also plots the Poisson-predicted radiation field and source location from the analytical model, as well as any physical obstructions and posterior sample information from MCMC inference.
-
-# arguments
-* `path_data::DataFrame` – DataFrame containing the robot's path history and collected measurements. Must contain a column `"x [m]"` with position vectors.
-
-# keyword arguments
-* `x₀::Union{Nothing, Vector{Float64}}=nothing` – The true source location. If provided, it is plotted as a black cross.
-* `rad_sim::Union{Nothing, RadSim}=nothing` – The analytical radiation model used to compute expected counts for visualization.
-* `fig_size::Float64=1000.0` – Resolution (in pixels) for the figure size.
-* `L::Float64=1000.0` – Length of the domain in meters (used if `rad_sim` is not provided).
-* `scale_max::Float64=1e6` – Maximum count rate value for color scaling (used only if `rad_sim` is not provided).
-* `z_slice::Int64=1` – Slice of the γ-matrix to visualize (default is the first slice).
-* `save_num::Int64=0` – If greater than zero, saves the figure as `"save_num.png"`.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions (e.g., `Rectangle` or `Circle`) to be drawn on the plot.
-* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional MCMC posterior samples (e.g., from Turing.jl). If provided, they will be plotted on the figure.
-
-# returns
-* A `CairoMakie.Figure` object containing the assembled visualization.
-"""
-function viz_data_collection(
-	path_data::DataFrame; 
-	x₀::Union{Nothing, Vector{Float64}}=nothing, 
-	rad_sim::Union{Nothing, RadSim}=nothing, 
-	fig_size::Float64=1000.0, 
-	L::Float64=1000.0, 
-	scale_max::Float64=1e6, 
-	z_slice::Int64=1, 
-	save_num::Int64=0, 	
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing, chain_data::Union{Nothing, DataFrame}=nothing
-)	    
-	
-	fig = Figure(size=(fig_size, fig_size))
-	ax  = Axis(
-	    fig[1, 1], 
-	    aspect=DataAspect(), 
-	    xlabel="x₁", 
-	    ylabel="x₂",
-		xlabelsize=40,
-		ylabelsize=40,
-		xticklabelsize=21,
-		yticklabelsize=21
-	)
-
-	if ! isnothing(rad_sim)
-		#get source, grid size and scale_max from data
-		counts_I = I * rad_sim.γ_matrix[z_slice]
-		source_coord = argmax(counts_I)
-		source = [coord * rad_sim.Δxy for coord in source_coord.I]
-		source[1] = source[1] - Δx
-		scale_max = maximum(counts_I)
-		L = rad_sim.Lxy
-		
-		scale = ReversibleScale(
-		    x -> log10(x + 1),   # forward: avoids log(0)
-		    x -> 10^x - 1        # inverse
-		)
-		
-		
-		hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
-
-		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
-		colorbar_tick_values[1] = 0.0
-
-		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
-
-		Colorbar(fig[1, 2], hm, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
-	end
-
-	sc = viz_path!(ax, path_data, scale_max=scale_max)
-
-	if ! isnothing(x₀) || ! isnothing(rad_sim)
-		scatter!([source[1]], [source[2]], color="black", marker=:xcross, markersize=25, label="source", strokewidth=1)
-
-		#axislegend(location=:tr)
-	end
-
-	if ! isnothing(chain_data)
-		viz_chain_data!(ax, chain_data, show_source=false)
-	end
-	
-	xlims!(0-Δx, L+Δx)
-	ylims!(0-Δx, L+Δx)
-	
-	if isnothing(rad_sim)
-		Colorbar(fig[1, 2], sc, label="counts")
-	end
-
-	if save_num > 0
-		save("$(save_num).png", fig)
-	end
-	
-	fig
-end
 
 # ╔═╡ 82425768-02ba-4fe3-ab89-9ac95a45e55e
 """
@@ -1352,9 +1029,6 @@ function viz_path!(
 	return sc
 end
 
-# ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
-viz_data_collection(data, rad_sim=test_rad_sim)
-
 # ╔═╡ 50832f87-c7eb-4418-9864-0f807a16e7a7
 md"## Spiral movement"
 
@@ -1387,81 +1061,6 @@ function init_spiral(start_pos::Vector{Float64}; step_init::Int=2, step_incr::In
         step_incr,
         0
     )
-end
-
-# ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
-"""
-`step_spiral!` helper function, advances the spiral controller by one step and updates the robot path accordingly.
-
-This function moves the robot in a growing outward spiral pattern by stepping in the current direction of the spiral controller. After completing a leg of movement, it rotates the direction and increases the leg length every two turns. If the next step would enter an obstruction or exceed the environment boundary, a random valid direction is chosen instead.
-
-# arguments
-* `sc::SpiralController` – The spiral controller managing current position, direction, and step logic.
-* `robot_path::Vector{Vector{Float64}}` – The history of the robot's positions; the current position will be appended after the step.
-
-# keyword arguments
-* `Δx::Float64=10.0` – Step size in meters.
-* `L::Float64=1000.0` – Width/length of the square domain; used to enforce boundary constraints.
-* `allow_overlap::Bool=false` – If `false`, previously visited locations are avoided unless movement is otherwise blocked.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Vector of static obstructions (`Rectangle`, `Circle`, etc.) that the robot must avoid.
-
-# returns
-* The updated position as a `Vector{Float64}` after the spiral step is executed.
-"""
-function step_spiral!(
-    sc::SpiralController,
-	robot_path::Vector{Vector{Float64}};
-    Δx::Float64=10.0,
-    L::Float64=1000.0,
-    allow_overlap::Bool=false,
-    obstructions::Union{Nothing, Vector{Obstruction}}=nothing
-)
-    #gt current direction and step delta
-    dir = sc.directions[sc.dir_idx]
-    Δ = get_Δ(dir; Δx=Δx)
- 	new_pos = sc.pos .+ Δ
-
-	#obstruction or boundary check
-    if !isnothing(obstructions)
-        blocked = any(obs -> overlaps(new_pos, obs), obstructions) || any(x -> x < 0.0 || x > L, new_pos)
-        if blocked
-            valid_dirs = get_next_steps([sc.pos], 
-										L, 
-										Δx=Δx, 
-										allow_overlap=allow_overlap, obstructions=obstructions
-									   )
-            if isempty(valid_dirs)
-				push!(robot_path, copy(sc.pos))
-                return sc.pos  # stuck, return current position
-            else
-                new_dir = rand(valid_dirs)
-                Δ = get_Δ(new_dir, Δx=Δx)
-                new_pos = sc.pos .+ Δ
-                sc.pos .= new_pos
-				push!(robot_path, copy(sc.pos))
-                return new_pos
-            end
-        end
-    end
-	
-
-    #step
-    sc.pos .= new_pos
-
-    #trck how many steps taken this leg
-    sc.leg_count += 1
-
-    #aftr completing a full leg, updte dir
-    if sc.leg_count == sc.step_size
-        sc.leg_count = 0
-        sc.dir_idx = mod1(sc.dir_idx + 1, 4)
-        if iseven(sc.dir_idx)  #incr step size every 2 turns
-            sc.step_size += sc.step_increment
-        end
-    end
-
-	push!(robot_path, copy(sc.pos))
-    return copy(sc.pos)
 end
 
 # ╔═╡ 3ae4c315-a9fa-48bf-9459-4b7131f5e2eb
@@ -1511,11 +1110,6 @@ This model assumes that measured counts at each location follow a Poisson distri
 
     return nothing
 end
-
-# ╔═╡ 13ff8f6a-7bb2-41a0-83ac-7c9fca962605
-chain = DataFrame(
-	sample(rad_model(data), NUTS(), MCMCThreads(), 500, 2)
-)
 
 # ╔═╡ 21486862-b3c2-4fcc-98b2-737dcc5211fb
 md"## `Visualize` - Turing chain"
@@ -1615,6 +1209,267 @@ function viz_chain_data!(
 	
 end
 
+# ╔═╡ 66d5216d-66a8-4e33-9f36-54a0d4ec4459
+"""
+Helper function for viz_robot_grid().
+
+Visualizes the robot's search grid over the environment, including optional overlays of data collection paths, posterior samples, and the true source location.
+
+This function renders a heatmap of the environment’s layout and optionally overlays valid sampling grid points, the robot’s movement path and measurements, posterior samples from MCMC chains, and the ground truth source location.
+
+# arguments
+* `environment::Environment` – The environment struct generated by `generate_robot_grid_matrix()`. It must contain a field `grid` of type `Array{Union{Bool, Int64}, 3}`, where the first two entries are the x and y coordinates of grid locations and the third entry is a Boolean indicating accessibility.
+
+# keyword arguments
+* `data_collection::Union{DataFrame, Nothing}=nothing` – A DataFrame containing the robot’s path and measured radiation values; used to visualize the robot’s trajectory.
+* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional posterior chain data used to visualize source belief distributions (via `viz_chain_data!`).
+* `fig_size::Int=800` – Controls the pixel resolution of the output figure.
+* `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
+* `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+
+# returns
+* `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
+"""
+function viz_robot_grid!(
+	ax,
+	environment::Environment; 
+	data_collection::Union{DataFrame, Nothing}=nothing,
+	chain_data::Union{Nothing, DataFrame}=nothing,
+	show_grid::Bool=true,
+	x₀::Union{Vector{Float64}, Nothing}=nothing,
+	scale_max::Real=1e2,
+	view_chain_as_hm::Bool=false
+)
+    heatmap!(ax, environment.masked_env; colormap=reverse(ColorSchemes.grays))
+
+    n_valid = count(environment.grid[:, :, 3] .== true)
+
+    xs = zeros(Float64, n_valid)
+    ys = zeros(Float64, n_valid)
+
+    idx = 1
+	if show_grid
+		#loop through the grid and add true values to the scatter plot
+	    for i in 1:size(environment.grid, 1), j in 1:size(environment.grid, 2)
+	        if environment.grid[j, i, 3] == true
+	            xs[idx] = environment.grid[i, j, 1]
+	            ys[idx] = environment.grid[i, j, 2]
+	            idx += 1
+	        end
+	    end
+		scatter!(ax, xs, ys; color = :cyan, markersize = 10, label="search grid sampling point")
+		if isnothing(x₀)
+			axislegend(ax, position=:lb)
+		end
+	end
+
+	if ! isnothing(chain_data)
+		hm = viz_chain_data!(
+			ax, 
+			chain_data, 
+			show_source=false, 
+			show_as_heatmap=view_chain_as_hm,
+			environment=environment
+		)
+	end
+
+	if !isnothing(data_collection)	
+		sc = viz_path!(ax, data_collection, scale_max=1e2)
+	end
+
+	if !isnothing(x₀)
+		scatter!(ax, [x₀[1]], [x₀[2]], color="red", marker=:xcross, markersize=15, label="source", strokewidth=1)
+		axislegend(ax, position=:lb)
+	end
+
+	visuals = Dict{Symbol, Any}()
+	if !isnothing(data_collection)
+		visuals[:sc] = sc
+	end
+	if view_chain_as_hm && !isnothing(chain_data)
+		visuals[:hm] = hm
+	end
+
+	return visuals
+end
+
+
+# ╔═╡ 45014b50-c04b-4f42-83c3-775ec6cd6e3f
+"""
+Visualizes the robot's search grid over the environment, including optional overlays of data collection paths, posterior samples, and the true source location.
+
+This function renders a heatmap of the environment’s layout and optionally overlays valid sampling grid points, the robot’s movement path and measurements, posterior samples from MCMC chains, and the ground truth source location.
+
+# arguments
+* `environment::Environment` – The environment struct generated by `generate_robot_grid_matrix()`. It must contain a field `grid` of type `Array{Union{Bool, Int64}, 3}`, where the first two entries are the x and y coordinates of grid locations and the third entry is a Boolean indicating accessibility.
+
+# keyword arguments
+* `data_collection::Union{DataFrame, Nothing}=nothing` – A DataFrame containing the robot’s path and measured radiation values; used to visualize the robot’s trajectory.
+* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional posterior chain data used to visualize source belief distributions (via `viz_chain_data!`).
+* `fig_size::Int=800` – Controls the pixel resolution of the output figure.
+* `show_grid::Bool=true` – If `true`, plots the robot’s valid sampling grid locations.
+* `x₀::Union{Vector{Float64}, Nothing}=nothing` – If provided, marks the true source location as a red × marker.
+* `scale_max::Float64=1e5` - the max source strength for the color bar.
+
+# returns
+* `Figure` – A `CairoMakie.Figure` object visualizing the environment, optionally overlaid with robot sampling grid, collected data, posterior beliefs, and source location.
+"""
+function viz_robot_grid(
+	environment::Environment; 
+	data_collection::Union{DataFrame, Nothing}=nothing,
+	chain_data::Union{Nothing, DataFrame}=nothing,
+	fig_size::Int=800,
+	show_grid::Bool=true,
+	x₀::Union{Vector{Float64}, Nothing}=nothing,
+	scale_max::Real=1e2,
+	view_chain_as_hm::Bool=false
+)
+    fig = Figure(size=(fig_size, fig_size))
+    ax = Axis(fig[1, 1], aspect=DataAspect(), title="rad source search space")
+
+
+	visuals = viz_robot_grid!(
+		ax,
+		environment,
+		data_collection=data_collection,
+		chain_data=chain_data,
+		show_grid=show_grid,
+		x₀=x₀,
+		scale_max=scale_max,
+		view_chain_as_hm=view_chain_as_hm
+	)
+
+
+	if !isnothing(data_collection)
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(
+			fig[1, 2],
+			visuals[:sc],
+			label = "counts", 
+			ticks = (colorbar_tick_values, colorbar_tick_labels), 
+			ticklabelsize=25, 
+			labelsize=35)
+	end
+	
+	if view_chain_as_hm
+		Colorbar(
+			fig[2, 1], 
+		  	visuals[:hm],
+			label="posterior density",
+			ticklabelsize=20, 
+			labelsize=30,
+			width=fig_size * 0.75,  # scale for layout
+			vertical=false)
+	end
+    return fig
+end
+
+
+# ╔═╡ d47b2021-7129-4a31-8585-2c7257489b1a
+viz_robot_grid(grid_env)
+
+# ╔═╡ deae0547-2d42-4fbc-b3a9-2757fcfecbaa
+"""
+Visualizes the robot path, measurement locations, and optionally the radiation field, source location, obstructions, and MCMC posterior data on a 2D plot.
+
+This function overlays data collected during a simulation on top of a spatial map. If provided, it also plots the Poisson-predicted radiation field and source location from the analytical model, as well as any physical obstructions and posterior sample information from MCMC inference.
+
+# arguments
+* `path_data::DataFrame` – DataFrame containing the robot's path history and collected measurements. Must contain a column `"x [m]"` with position vectors.
+
+# keyword arguments
+* `x₀::Union{Nothing, Vector{Float64}}=nothing` – The true source location. If provided, it is plotted as a black cross.
+* `rad_sim::Union{Nothing, RadSim}=nothing` – The analytical radiation model used to compute expected counts for visualization.
+* `fig_size::Float64=1000.0` – Resolution (in pixels) for the figure size.
+* `L::Float64=1000.0` – Length of the domain in meters (used if `rad_sim` is not provided).
+* `scale_max::Float64=1e6` – Maximum count rate value for color scaling (used only if `rad_sim` is not provided).
+* `z_slice::Int64=1` – Slice of the γ-matrix to visualize (default is the first slice).
+* `save_num::Int64=0` – If greater than zero, saves the figure as `"save_num.png"`.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions (e.g., `Rectangle` or `Circle`) to be drawn on the plot.
+* `chain_data::Union{Nothing, DataFrame}=nothing` – Optional MCMC posterior samples (e.g., from Turing.jl). If provided, they will be plotted on the figure.
+
+# returns
+* A `CairoMakie.Figure` object containing the assembled visualization.
+"""
+function viz_data_collection(
+	path_data::DataFrame; 
+	x₀::Union{Nothing, Vector{Float64}}=nothing, 
+	rad_sim::Union{Nothing, RadSim}=nothing, 
+	fig_size::Float64=1000.0, 
+	L::Float64=1000.0, 
+	scale_max::Float64=1e6, 
+	z_slice::Int64=1, 
+	save_num::Int64=0, 	
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing, chain_data::Union{Nothing, DataFrame}=nothing
+)	    
+	
+	fig = Figure(size=(fig_size, fig_size))
+	ax  = Axis(
+	    fig[1, 1], 
+	    aspect=DataAspect(), 
+	    xlabel="x₁", 
+	    ylabel="x₂",
+		xlabelsize=40,
+		ylabelsize=40,
+		xticklabelsize=21,
+		yticklabelsize=21
+	)
+
+	if ! isnothing(rad_sim)
+		#get source, grid size and scale_max from data
+		counts_I = I * rad_sim.γ_matrix[z_slice]
+		source_coord = argmax(counts_I)
+		source = [coord * rad_sim.Δxy for coord in source_coord.I]
+		source[1] = source[1] - Δx
+		scale_max = maximum(counts_I)
+		L = rad_sim.Lxy
+		
+		scale = ReversibleScale(
+		    x -> log10(x + 1),   # forward: avoids log(0)
+		    x -> 10^x - 1        # inverse
+		)
+		
+		
+		hm = viz_model_data!(ax, rad_sim, obstructions=obstructions)
+
+		colorbar_tick_values = [10.0^e for e in range(0, log10(scale_max), length=6)]
+		colorbar_tick_values[1] = 0.0
+
+		colorbar_tick_labels = [@sprintf("%.0e", val) for val in colorbar_tick_values]
+
+		Colorbar(fig[1, 2], hm, label = "counts", ticks = (colorbar_tick_values, colorbar_tick_labels), ticklabelsize=25, labelsize=35)
+	end
+
+	sc = viz_path!(ax, path_data, scale_max=scale_max)
+
+	if ! isnothing(x₀) || ! isnothing(rad_sim)
+		scatter!([source[1]], [source[2]], color="black", marker=:xcross, markersize=25, label="source", strokewidth=1)
+
+		#axislegend(location=:tr)
+	end
+
+	if ! isnothing(chain_data)
+		viz_chain_data!(ax, chain_data, show_source=false)
+	end
+	
+	xlims!(0-Δx, L+Δx)
+	ylims!(0-Δx, L+Δx)
+	
+	if isnothing(rad_sim)
+		Colorbar(fig[1, 2], sc, label="counts")
+	end
+
+	if save_num > 0
+		save("$(save_num).png", fig)
+	end
+	
+	fig
+end
+
 # ╔═╡ 2fe974fb-9e0b-4c5c-9a5a-a5c0ce0af065
 function viz_chain_data(
 	chain::DataFrame; 
@@ -1650,9 +1505,6 @@ function viz_chain_data(
 	
 	return fig
 end
-
-# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
- viz_chain_data(chain, show_as_heatmap=true)
 
 # ╔═╡ aa72cf61-839d-4707-95c8-0a9230e77d56
 md"## `Visualize` - Posterior"
@@ -1693,9 +1545,6 @@ function viz_posterior(chain::DataFrame; Δx::Float64=Δx, L::Float64=L)
 	
 	return fig
 end
-
-# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
-viz_posterior(chain)
 
 # ╔═╡ 95837cad-192d-46b4-aaa4-c86e9b1d1c09
 md"# Exploration control"
@@ -1779,6 +1628,484 @@ md"# Thompson sampling"
 # ╔═╡ f55544f3-413d-44c5-8e81-37a5f017b460
 md"## Thompson sampling for simulated space"
 
+# ╔═╡ 161833bd-aa39-4bab-98b6-be10b6d3653f
+
+
+# ╔═╡ 76bc6fcb-0018-40dd-9709-65bf9d223615
+md"### building overlap functions"
+
+# ╔═╡ 12729385-04ea-4c8b-ab08-e114b4f4172d
+"""
+Checks whether a 2D position lies within a rectangular obstruction.
+
+This function determines whether the point `pos` is inside the axis-aligned rectangle specified by its center and dimensions.
+
+# rectangle arguments
+* `pos::Vector{Float64}` – A 2D position `[x, y]` to check for overlap.
+* `rect::Rectangle` – The rectangular obstruction defined by its center, width, and height.
+
+# returns
+* `Bool` – `true` if `pos` lies within the rectangle, `false` otherwise.
+"""
+function overlaps(pos::Vector{Float64}, rect::Rectangle)
+	x, y = pos
+	cx, cy = rect.center
+	hw, hh = rect.width / 2, rect.height / 2
+	return (cx - hw ≤ x ≤ cx + hw) && (cy - hh ≤ y ≤ cy + hh)
+end
+
+# ╔═╡ 32228db5-bf76-4633-ab5e-224f95459cc9
+"""
+Checks whether a 2D position lies within a circular obstruction.
+
+This function determines whether the point `pos` is within or on the boundary of the circle defined by its center and radius.
+
+# circle arguments
+* `pos::Vector{Float64}` – A 2D position `[x, y]` to check for overlap.
+* `circ::Circle` – The circular obstruction defined by its center and radius.
+
+# returns
+* `Bool` – `true` if `pos` lies within or on the boundary of the circle, `false` otherwise.
+"""
+function overlaps(pos::Vector{Float64}, circ::Circle)
+	x, y = pos
+	cx, cy = circ.center
+	return (x - cx)^2 + (y - cy)^2 ≤ circ.radius^2
+end
+
+# ╔═╡ ddc23919-17a7-4c78-86f0-226e4d447dbe
+"""
+Moves the robot `n` times in a specified direction by modifying the robot path in-place.
+
+This function either performs `n` individual steps or one aggregated movement of `n × Δx`, depending on the `one_step` flag. Movement halts early if it would result in collision with an obstruction or leave the defined environment bounds.
+
+# arguments
+* `robot_path::Vector{Vector{Float64}}` – The robot's current path, with the last element representing its current position.
+* `direction::Symbol` – The direction to move. Must be one of `:up`, `:down`, `:left`, or `:right`.
+* `n::Int` – The number of steps to move.
+
+# keyword arguments
+* `Δx::Float64=Δx` – The grid spacing value.
+* `one_step::Bool=false` – If `true`, moves the robot `n` steps in one large movement. If `false`, moves one step at a time, allowing for intermediate checks or measurements.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Optional list of obstructions; movement will halt if any are encountered.
+* `L::Float64=1000.0` – The length of the square environment; movement outside this boundary is not allowed.
+
+# modifies
+* `robot_path` – Updated in-place with the new robot position(s), depending on movement conditions and the `one_step` setting.
+"""
+function move!(robot_path::Vector{Vector{Float64}}, direction::Symbol, n::Int; Δx::Float64=Δx, one_step::Bool=false, obstructions::Union{Nothing, Vector{Obstruction}}=nothing, L::Float64=1000.0)
+		if one_step
+			pos = copy(robot_path[end])
+   			Δ = get_Δ(direction; Δx=Δx)
+
+			for _ in 1:n
+        		candidate = pos .+ Δ
+        		if obstructions !== nothing && any(
+						overlaps(
+							candidate, obs
+						) for obs in obstructions
+					)
+           	 		break
+				elseif any(x -> x <= 0.0 || x >= L, candidate)
+					break
+        		end
+				#need to add logic  to make sure we're not moving off map i.e. candidate can't be greater than L or less than 0
+        		pos .= candidate
+    		end
+			push!(robot_path, pos)
+		else
+			for i = 1:n
+				move!(robot_path, direction, Δx=Δx)
+			end
+		end
+	end
+
+# ╔═╡ 50e623c0-49f6-4bb5-9b15-c0632c3a88fd
+begin
+	#Δx = 10.0 # m (step length for robot)
+	robot_path = [[0.0, 0.0]] # begin at origin
+	
+	move!(robot_path, :up, 5)
+	move!(robot_path, :right, 7)
+	move!(robot_path, :up, 10)
+	move!(robot_path, :right, 15)
+	
+	data = DataFrame(
+		"time" => 1:length(robot_path),
+		"x [m]" => robot_path,
+		"counts" => [sample_model(x, test_rad_sim, I=I) for x in robot_path]
+	)
+end
+
+# ╔═╡ dac856e6-f651-49d0-994e-46c8296a3d30
+data
+
+# ╔═╡ 9fbe820c-7066-40b5-9617-44ae0913928e
+viz_data_collection(data, rad_sim=test_rad_sim)
+
+# ╔═╡ 13ff8f6a-7bb2-41a0-83ac-7c9fca962605
+chain = DataFrame(
+	sample(rad_model(data), NUTS(), MCMCThreads(), 500, 2)
+)
+
+# ╔═╡ ea2dc60f-0ec1-4371-97f5-bf1e90888bcb
+ viz_chain_data(chain, show_as_heatmap=true)
+
+# ╔═╡ 4bb02313-f48b-463e-a5b6-5b40fba57e81
+viz_posterior(chain)
+
+# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+"""
+Given the robot path, returns a tuple of optional directions the robot could travel in next.
+
+# arguments
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `L::Float64` - the width/length of the space being explored.
+# keyword arguments
+* `Δx::Float64=10.0` - step size of the robot.
+* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+# returns
+* `Vector{Symbol}` – A list of direction symbols (`:up`, `:down`, `:left`, `:right`) representing valid next moves for the robot based on the current position, grid boundaries, accessibility, and overlap settings. The directions are filtered to avoid backtracking unless `allow_overlap=true`.
+"""
+function get_next_steps(
+	robot_path::Vector{Vector{Float64}}, 
+	L::Float64; 
+	Δx::Float64=10.0,
+	allow_overlap::Bool=false,
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+
+	current_pos = robot_path[end]
+
+	directions = Dict(
+        :up    => [0.0, Δx],
+        :down  => [0.0, -Δx],
+        :left  => [-Δx, 0.0],
+        :right => [Δx, 0.0]
+    )
+
+	last_step = length(robot_path)>1 ? robot_path[end] .- robot_path[end-1] : nothing
+	
+
+	function is_valid(dir)
+		function unit(v)
+		    n = norm(v)
+		    n ≈ 0.0 ? v : v ./ n
+		end
+	    step = directions[dir]
+	    new_pos = current_pos .+ step
+	    in_bounds = all(0.0 .≤ new_pos .≤ L)
+	    dir_unit = unit(step)
+	    last_unit = isnothing(last_step) ? dir_unit : unit(last_step)
+	    not_backtrack = allow_overlap || isnothing(last_step) || dot(dir_unit, last_unit) > -0.9
+	    not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
+	    return in_bounds && not_backtrack && not_blocked
+	end
+
+	return Tuple(filter(is_valid, keys(directions)))
+
+end
+
+# ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
+md"## simulate source localization"
+
+# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
+md"## `Example Sim`"
+
+# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
+start = [65, 70]
+
+# ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
+md"### simulation control"
+
+# ╔═╡ 5c03dc8e-6484-4a73-8cb7-eb43aa382a9d
+begin
+	# change this to the number of steps you want the robot to take before giving up
+	# without obstructions
+	num_steps_sim = 90
+	#with obstructions
+	num_steps_sim_obst = 40
+
+	#num of MCMC chains & samples
+	num_mcmc_chain = 4
+	num_mcm_sample = 150
+	
+
+end
+
+# ╔═╡ e7023831-5c03-4f53-95f4-ab837bced1b2
+#print(simulation_data)
+
+# ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
+#test_rad_sim_obstructed
+
+# ╔═╡ 2f7a3d49-1864-4113-b173-ee7e8c9e62a4
+md"## `Example Sim` - with obstructions"
+
+# ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
+simulation_data_obst, simulation_chains_obst = SimulationSpace.simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=1)
+
+# ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
+simulation_chains_obst
+
+# ╔═╡ b7673342-70f2-4cbb-869e-1b67f9ee7235
+viz_sim_chain_entropy(simulation_chains_obst)
+
+# ╔═╡ 97de1cb8-9c72-440b-896a-a1f1d24e46f5
+viz_sim_chain_σ(simulation_chains_obst)
+
+# ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
+begin
+	for i=1:length(simulation_chains_obst)
+		#viz_data_collection(simulation_data_obst[1:i, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[i], save_num=i)
+	end
+end
+
+# ╔═╡ ea505dc1-a18f-408f-bff8-3b488c49fdb0
+@bind chain_val_obst PlutoUI.Slider(1:size(simulation_data_obst, 1)-1, show_value=true)
+
+# ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
+viz_data_collection(simulation_data_obst[1:chain_val_obst, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[chain_val_obst])
+
+# ╔═╡ d14fc2b4-ad11-4506-a580-06bfefede40b
+ viz_posterior(simulation_chains_obst[chain_val_obst])
+
+# ╔═╡ a53b3039-eb9e-45aa-914f-034d2a5b6e01
+md"# Save sim data"
+
+# ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
+md"# Batch Test"
+
+# ╔═╡ 0c2d090c-82c8-466d-aea7-140b4422d254
+md"## latin hypercube sample starts"
+
+# ╔═╡ 5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
+"""
+Using latin hypercube sampling, generate `num_samples` of pseudo uniformly distributed sample start locations for the robot.
+
+# keyword arguments
+* `num_samples::Int=15` - number of sample start locations.
+* `L::Float64=L` - space size.
+* `Δx::Float64=Δx` - discretization.
+# returns
+* `Vector{Vector{Int}}` – A list of robot starting positions expressed as integer grid indices `[i, j]`. The sample points are generated using Latin Hypercube Sampling (LHS) to ensure pseudo-uniform coverage of the space. If obstructions are provided, all returned points are guaranteed not to overlap with any obstruction region.
+"""
+function gen_sample_starts(
+	;num_samples::Int=15, 
+	L::Float64=L, 
+	Δx::Float64=Δx, 
+	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+
+	@assert num_samples < 100 "please limit num_samples to less than 100"
+	#get latin hypercube samples
+	lhc_samples = LHCoptim(num_samples, 2, 10)[1] .* L /num_samples
+
+	#convert to vectors of grid indicies
+	r_starts = [[floor(Int, lhc_samples[i, 1] / Δx), 
+                 floor(Int, lhc_samples[i, 2] / Δx)]
+                 for i in 1:size(lhc_samples, 1)]
+
+	#if obstructions are provided, check to make sure no overlap occurs
+	if !isnothing(obstructions)
+		for coords in r_starts
+			x₁ = ((coords[1] - 1) * Δx) + 0.5 * Δx
+	    	x₂ = ((coords[2] - 1) * Δx) + 0.5 * Δx
+			#if overlap is found with obstruction, rerun LHC algorithm
+			if !all(obs -> !overlaps([x₁,x₂] , obs), obstructions)
+				return gen_sample_starts(num_samples=num_samples, L=L, Δx=Δx, obstructions=obstructions)
+			end
+		end	
+	end
+
+	return r_starts
+end
+
+# ╔═╡ fd3393e0-9e08-41e6-a6d2-c28743cb1a68
+robot_starts = gen_sample_starts(num_samples=12, obstructions=obstructions)
+
+# ╔═╡ e75b8aae-8da8-45e8-8405-103f77a3cca6
+md"## run batch test"
+
+# ╔═╡ c84fc2c3-5d44-49dd-a176-cf7277b4ef30
+robot_starts
+
+# ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
+begin
+
+	#=some_test_start = [[85, 85]]=#
+	#=
+	batch_test = run_batch(
+	test_rad_sim_obstructed, 
+	robot_starts, 
+	num_mcmc_samples=150,
+	num_mcmc_chains=4,
+	I=I,
+	L=L,
+	Δx=Δx,
+	allow_overlap=false,
+	x₀=[250.0, 250.0],
+	z_index=1,
+	obstructions=obstructions,
+	exploring_start=true,
+	num_exploring_start_steps=15,
+	spiral=true,
+	r_check=70.0,
+	r_check_count=10,
+	meas_time=1.0,
+	num_replicates=10,
+	filename="test_batch")=#
+end
+
+# ╔═╡ 5e5bf646-0a05-4405-8563-86abe65d6fca
+#=
+test_params(
+	test_rad_sim, 
+	robot_starts,
+	filename="no_obstructions")
+=#
+
+# ╔═╡ 75cda12e-3a12-44b4-aa51-ef60588fee49
+md"# Experimental space"
+
+# ╔═╡ de432aa4-b320-4598-aedd-32ca2b74be52
+"""
+Given the robot path, returns a tuple of optional directions the robot could travel in next.
+
+# arguments
+* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
+* `environment::Environment` - environment struct generated by the `generate_robot_grid_matrix()` function, which should contain a field named grid of type `Array{Union{Bool, Int64}, 3}` where the first two entries are the x and y coordinates of each grid location for the robot search space and the third entry is the matrix of boolean values representing accessibility of locations.
+# keyword arguments
+* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
+# returns
+* `Vector{Symbol}` – A list of direction symbols (`:up`, `:down`, `:left`, `:right`) representing valid next moves for the robot based on the current position, grid boundaries, accessibility, and overlap settings. The directions are filtered to avoid backtracking unless `allow_overlap=true`.
+"""
+function get_next_steps(
+	robot_path::Vector{Vector{Float64}}, 
+	environment::Environment;
+	allow_overlap::Bool=false
+)
+
+	#this is needed for src file where type assertions for structs get weird
+	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
+
+	#ensure equal grid spacing by ensuring equal entries by row for x's, column for y's
+	for i=1:size(environment.grid[:, :, 1], 1)
+		@assert environment.grid[i, :, 1] == environment.grid[1, :, 1] "row $i is not equal to row 1... all rows must have equal entries."
+	end
+
+	for j=1:size(environment.grid[:, :, 1], 2)
+		@assert environment.grid[:, j, 2] == environment.grid[:, 1, 2] "column $j is not equal to column 1... all columns must have equal entries."
+	end
+
+	#get indicies that most closely match the current position
+	xs 			= environment.grid[1, :, 1]
+	ys 			= environment.grid[:, 1, 2]
+	current_pos = robot_path[end]
+	x_index 	= argmin(abs.(xs .- current_pos[1]))
+	y_index 	= argmin(abs.(ys .- current_pos[2]))
+	pos_index 	= [x_index, y_index]
+
+	#establish directional index change
+	directions 	= Dict(
+        :up    => [0, 1],
+        :down  => [0, -1],
+        :left  => [-1, 0],
+        :right => [1, 0]
+    )
+
+	prev_pos = length(robot_path)>1 ? robot_path[end-1] : robot_path[end]
+	prev_index = [argmin(abs.(xs .- prev_pos[1])), argmin(abs.(ys .- prev_pos[2]))]
+
+	#collect valid directions
+	valid_directions = [
+        dir for (dir, Δ) in directions 
+        if (0 .< (x_index .+ Δ[1]) ≤ size(environment.grid, 1)) &&
+           (0 .< (y_index .+ Δ[2]) ≤ size(environment.grid, 2)) &&
+           environment.grid[x_index + Δ[1], y_index + Δ[2], 3] == true &&
+           (allow_overlap || (x_index + Δ[1], y_index + Δ[2]) != prev_index)
+    ]
+
+	return valid_directions
+
+end
+
+# ╔═╡ ec9e4693-771c-467d-86cc-ab2ba90019fe
+"""
+`step_spiral!` helper function, advances the spiral controller by one step and updates the robot path accordingly.
+
+This function moves the robot in a growing outward spiral pattern by stepping in the current direction of the spiral controller. After completing a leg of movement, it rotates the direction and increases the leg length every two turns. If the next step would enter an obstruction or exceed the environment boundary, a random valid direction is chosen instead.
+
+# arguments
+* `sc::SpiralController` – The spiral controller managing current position, direction, and step logic.
+* `robot_path::Vector{Vector{Float64}}` – The history of the robot's positions; the current position will be appended after the step.
+
+# keyword arguments
+* `Δx::Float64=10.0` – Step size in meters.
+* `L::Float64=1000.0` – Width/length of the square domain; used to enforce boundary constraints.
+* `allow_overlap::Bool=false` – If `false`, previously visited locations are avoided unless movement is otherwise blocked.
+* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` – Vector of static obstructions (`Rectangle`, `Circle`, etc.) that the robot must avoid.
+
+# returns
+* The updated position as a `Vector{Float64}` after the spiral step is executed.
+"""
+function step_spiral!(
+    sc::SpiralController,
+	robot_path::Vector{Vector{Float64}};
+    Δx::Float64=10.0,
+    L::Float64=1000.0,
+    allow_overlap::Bool=false,
+    obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+)
+    #gt current direction and step delta
+    dir = sc.directions[sc.dir_idx]
+    Δ = get_Δ(dir; Δx=Δx)
+ 	new_pos = sc.pos .+ Δ
+
+	#obstruction or boundary check
+    if !isnothing(obstructions)
+        blocked = any(obs -> overlaps(new_pos, obs), obstructions) || any(x -> x < 0.0 || x > L, new_pos)
+        if blocked
+            valid_dirs = get_next_steps([sc.pos], 
+										L, 
+										Δx=Δx, 
+										allow_overlap=allow_overlap, obstructions=obstructions
+									   )
+            if isempty(valid_dirs)
+				push!(robot_path, copy(sc.pos))
+                return sc.pos  # stuck, return current position
+            else
+                new_dir = rand(valid_dirs)
+                Δ = get_Δ(new_dir, Δx=Δx)
+                new_pos = sc.pos .+ Δ
+                sc.pos .= new_pos
+				push!(robot_path, copy(sc.pos))
+                return new_pos
+            end
+        end
+    end
+	
+
+    #step
+    sc.pos .= new_pos
+
+    #trck how many steps taken this leg
+    sc.leg_count += 1
+
+    #aftr completing a full leg, updte dir
+    if sc.leg_count == sc.step_size
+        sc.leg_count = 0
+        sc.dir_idx = mod1(sc.dir_idx + 1, 4)
+        if iseven(sc.dir_idx)  #incr step size every 2 turns
+            sc.step_size += sc.step_increment
+        end
+    end
+
+	push!(robot_path, copy(sc.pos))
+    return copy(sc.pos)
+end
+
 # ╔═╡ a2154322-23de-49a6-9ee7-2e8e33f8d10c
 """
 Given the robot path, finds the best next direction the robot to travel using Thompson sampling of the posterior.
@@ -1843,106 +2170,77 @@ function thompson_sampling(
 
 end
 
-# ╔═╡ 8b98d613-bf62-4b2e-9bda-14bbf0de6e99
+# ╔═╡ 1c0fee71-29a2-4fa1-93db-e1213ed88bb0
+md"## Thompson sampling for experimental space"
+
+# ╔═╡ 54e52416-6c81-4dae-be10-2ddd1449dbfa
 """
-Given the robot path, returns a tuple of optional directions the robot could travel in next.
+Given the robot path, finds the best next direction the robot to travel using thompson sampling of the posterior.
 
 # arguments
 * `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `L::Float64` - the width/length of the space being explored.
+* `environment::Environment` - environment struct generated by the `generate_robot_grid_matrix()` function, which should contain a field named grid of type `Array{Union{Bool, Int64}, 3}` where the first two entries are the x and y coordinates of each grid location for the robot search space and the third entry is the matrix of boolean values representing accessibility of locations.
+* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
 # keyword arguments
-* `Δx::Float64=10.0` - step size of the robot.
-* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
-* `obstructions::Union{Nothing, Vector{Obstruction}}=nothing` - vector of obstruction objects, currently only accepting Rectangle and Circle types.
+* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
 # returns
-* `Vector{Symbol}` – A list of direction symbols (`:up`, `:down`, `:left`, `:right`) representing valid next moves for the robot based on the current position, grid boundaries, accessibility, and overlap settings. The directions are filtered to avoid backtracking unless `allow_overlap=true`.
+* `Symbol` – The direction the robot should move next, selected from `:up`, `:down`, `:left`, or `:right` based on the sampled posterior estimate of the source location. If no valid direction is found, returns `:nothing`, or retries with `allow_overlap=true` if not already enabled.
 """
-function get_next_steps(
+function thompson_sampling(
 	robot_path::Vector{Vector{Float64}}, 
-	L::Float64; 
-	Δx::Float64=10.0,
-	allow_overlap::Bool=false,
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
+	environment::Environment,
+	chain::DataFrame;
+	allow_overlap::Bool=false
 )
 
-	current_pos = robot_path[end]
+	#find direction options from left, right, up, down within domain
+	direction_options = get_next_steps(
+		robot_path, 
+		environment,
+		allow_overlap=allow_overlap
+	)
 
-	directions = Dict(
-        :up    => [0.0, Δx],
-        :down  => [0.0, -Δx],
-        :left  => [-Δx, 0.0],
-        :right => [Δx, 0.0]
-    )
-
-	last_step = length(robot_path)>1 ? robot_path[end] .- robot_path[end-1] : nothing
-	
-
-	function is_valid(dir)
-		function unit(v)
-		    n = norm(v)
-		    n ≈ 0.0 ? v : v ./ n
-		end
-	    step = directions[dir]
-	    new_pos = current_pos .+ step
-	    in_bounds = all(0.0 .≤ new_pos .≤ L)
-	    dir_unit = unit(step)
-	    last_unit = isnothing(last_step) ? dir_unit : unit(last_step)
-	    not_backtrack = allow_overlap || isnothing(last_step) || dot(dir_unit, last_unit) > -0.9
-	    not_blocked = isnothing(obstructions) || all(obs -> !overlaps(new_pos, obs), obstructions)
-	    return in_bounds && not_backtrack && not_blocked
+	if length(direction_options) < 1 && allow_overlap == true
+		@warn "found no viable direction options with overlap allowed, returning nothing"
+		return :nothing
 	end
 
-	return Tuple(filter(is_valid, keys(directions)))
+	best_direction = :nothing
+	greedy_dist = Inf
+
+	#randomly sample from the chain
+	rand_θ = chain[rand(1:nrow(chain)), :]
+	target = [rand_θ["x₀[1]"], rand_θ["x₀[2]"]]
+	loc = robot_path[end]
+
+    # Loop through each valid direction and calculate distance
+    for direction in direction_options
+        Δ = get_Δ(direction, Δx=environment.Δ)
+        new_location = loc .+ Δ  # Apply grid spacing
+
+        # Compute Euclidean distance to the sampled location
+        dist = norm(new_location .- target)
+
+        if dist < greedy_dist
+            greedy_dist = dist
+            best_direction = direction
+        end
+    end
+
+	#if we can't find any direction at allow and overlap isn't allowed, redo w/ overlap
+	if best_direction == :nothing && allow_overlap == false
+		@warn "best direction == nothing, switching to allow overlap"
+		return thompson_sampling(
+			robot_path, 
+			environment,
+			chain,
+			allow_overlap=true
+		)
+	end
+	
+	return best_direction
 
 end
-
-# ╔═╡ 161833bd-aa39-4bab-98b6-be10b6d3653f
-
-
-# ╔═╡ 76bc6fcb-0018-40dd-9709-65bf9d223615
-md"### building overlap functions"
-
-# ╔═╡ 12729385-04ea-4c8b-ab08-e114b4f4172d
-"""
-Checks whether a 2D position lies within a rectangular obstruction.
-
-This function determines whether the point `pos` is inside the axis-aligned rectangle specified by its center and dimensions.
-
-# rectangle arguments
-* `pos::Vector{Float64}` – A 2D position `[x, y]` to check for overlap.
-* `rect::Rectangle` – The rectangular obstruction defined by its center, width, and height.
-
-# returns
-* `Bool` – `true` if `pos` lies within the rectangle, `false` otherwise.
-"""
-function overlaps(pos::Vector{Float64}, rect::Rectangle)
-	x, y = pos
-	cx, cy = rect.center
-	hw, hh = rect.width / 2, rect.height / 2
-	return (cx - hw ≤ x ≤ cx + hw) && (cy - hh ≤ y ≤ cy + hh)
-end
-
-# ╔═╡ 32228db5-bf76-4633-ab5e-224f95459cc9
-"""
-Checks whether a 2D position lies within a circular obstruction.
-
-This function determines whether the point `pos` is within or on the boundary of the circle defined by its center and radius.
-
-# circle arguments
-* `pos::Vector{Float64}` – A 2D position `[x, y]` to check for overlap.
-* `circ::Circle` – The circular obstruction defined by its center and radius.
-
-# returns
-* `Bool` – `true` if `pos` lies within or on the boundary of the circle, `false` otherwise.
-"""
-function overlaps(pos::Vector{Float64}, circ::Circle)
-	x, y = pos
-	cx, cy = circ.center
-	return (x - cx)^2 + (y - cy)^2 ≤ circ.radius^2
-end
-
-# ╔═╡ ff90c961-70df-478a-9537-5b48a3ccbd5a
-md"## simulate source localization"
 
 # ╔═╡ 52296a3f-9fad-46a8-9894-c84eb5cc86d7
 """
@@ -2139,30 +2437,6 @@ function simulate(
 	return save_chains ? (sim_data, sim_chains) : sim_data
 end
 
-# ╔═╡ 44d81172-2aef-4ef1-90e9-6a169e92f9ff
-md"## `Example Sim`"
-
-# ╔═╡ ae92f6ae-298d-446d-b379-ee2190ef1915
-start = [65, 70]
-
-# ╔═╡ ad54d1fa-b3e7-4aeb-96f4-b5d15dee38d5
-md"### simulation control"
-
-# ╔═╡ 5c03dc8e-6484-4a73-8cb7-eb43aa382a9d
-begin
-	# change this to the number of steps you want the robot to take before giving up
-	# without obstructions
-	num_steps_sim = 90
-	#with obstructions
-	num_steps_sim_obst = 40
-
-	#num of MCMC chains & samples
-	num_mcmc_chain = 4
-	num_mcm_sample = 150
-	
-
-end
-
 # ╔═╡ f847ac3c-6b3a-44d3-a774-4f4f2c9a195d
 simulation_data, simulation_chains = simulate(test_rad_sim, num_steps_sim, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start,  exploring_start=true, num_exploring_start_steps=45, spiral=true)
 
@@ -2172,12 +2446,6 @@ viz_sim_chain_entropy(simulation_chains)
 # ╔═╡ f063123b-bab8-435c-b128-0dc72d31b5fb
 viz_sim_chain_σ(simulation_chains)
 
-# ╔═╡ e7023831-5c03-4f53-95f4-ab837bced1b2
-#print(simulation_data)
-
-# ╔═╡ 22a012c1-4169-4959-af47-9d4b01691ae9
-#test_rad_sim_obstructed
-
 # ╔═╡ f5ea3486-4930-42c2-af1b-d4a17053976a
 @bind chain_val PlutoUI.Slider(1:size(simulation_data, 1)-1, show_value=true)
 
@@ -2186,40 +2454,6 @@ viz_data_collection(DataFrame(simulation_data[1:chain_val, :]), chain_data=simul
 
 # ╔═╡ 4a0c8aab-2424-441d-a8c7-9f8076ecbae7
  viz_posterior(simulation_chains[chain_val])
-
-# ╔═╡ 2f7a3d49-1864-4113-b173-ee7e8c9e62a4
-md"## `Example Sim` - with obstructions"
-
-# ╔═╡ ef7ff4ec-74ac-40b9-b68b-dbc508e50bef
-simulation_data_obst, simulation_chains_obst = SimulationSpace.simulate(test_rad_sim_obstructed, num_steps_sim_obst, save_chains=true, num_mcmc_samples=num_mcm_sample, num_mcmc_chains=num_mcmc_chain, robot_start=start, obstructions=obstructions, exploring_start=true, spiral=false, num_exploring_start_steps=1)
-
-# ╔═╡ 9d0795fa-703e-47a4-8f1e-fe38b9d604b4
-simulation_chains_obst
-
-# ╔═╡ b7673342-70f2-4cbb-869e-1b67f9ee7235
-viz_sim_chain_entropy(simulation_chains_obst)
-
-# ╔═╡ 97de1cb8-9c72-440b-896a-a1f1d24e46f5
-viz_sim_chain_σ(simulation_chains_obst)
-
-# ╔═╡ 3ff17eaf-974d-4bf0-b75f-d3ef473730bf
-begin
-	for i=1:length(simulation_chains_obst)
-		#viz_data_collection(simulation_data_obst[1:i, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[i], save_num=i)
-	end
-end
-
-# ╔═╡ ea505dc1-a18f-408f-bff8-3b488c49fdb0
-@bind chain_val_obst PlutoUI.Slider(1:size(simulation_data_obst, 1)-1, show_value=true)
-
-# ╔═╡ ac2dd9e7-0547-4cda-acf5-845d12d87626
-viz_data_collection(simulation_data_obst[1:chain_val_obst, :], rad_sim=test_rad_sim_obstructed, obstructions=obstructions, chain_data=simulation_chains_obst[chain_val_obst])
-
-# ╔═╡ d14fc2b4-ad11-4506-a580-06bfefede40b
- viz_posterior(simulation_chains_obst[chain_val_obst])
-
-# ╔═╡ a53b3039-eb9e-45aa-914f-034d2a5b6e01
-md"# Save sim data"
 
 # ╔═╡ 34527801-4098-4ffe-99c0-5abbdd99ee55
 begin
@@ -2236,60 +2470,6 @@ begin
 
 	#save("sim_data_1.jld2", sim_data)
 end
-
-# ╔═╡ 40cfe92d-b707-4b22-b3f9-228e5a0df7b2
-md"# Batch Test"
-
-# ╔═╡ 0c2d090c-82c8-466d-aea7-140b4422d254
-md"## latin hypercube sample starts"
-
-# ╔═╡ 5e5c4e18-63b9-4b2b-bf75-52c77ec3d0fe
-"""
-Using latin hypercube sampling, generate `num_samples` of pseudo uniformly distributed sample start locations for the robot.
-
-# keyword arguments
-* `num_samples::Int=15` - number of sample start locations.
-* `L::Float64=L` - space size.
-* `Δx::Float64=Δx` - discretization.
-# returns
-* `Vector{Vector{Int}}` – A list of robot starting positions expressed as integer grid indices `[i, j]`. The sample points are generated using Latin Hypercube Sampling (LHS) to ensure pseudo-uniform coverage of the space. If obstructions are provided, all returned points are guaranteed not to overlap with any obstruction region.
-"""
-function gen_sample_starts(
-	;num_samples::Int=15, 
-	L::Float64=L, 
-	Δx::Float64=Δx, 
-	obstructions::Union{Nothing, Vector{Obstruction}}=nothing
-)
-
-	@assert num_samples < 100 "please limit num_samples to less than 100"
-	#get latin hypercube samples
-	lhc_samples = LHCoptim(num_samples, 2, 10)[1] .* L /num_samples
-
-	#convert to vectors of grid indicies
-	r_starts = [[floor(Int, lhc_samples[i, 1] / Δx), 
-                 floor(Int, lhc_samples[i, 2] / Δx)]
-                 for i in 1:size(lhc_samples, 1)]
-
-	#if obstructions are provided, check to make sure no overlap occurs
-	if !isnothing(obstructions)
-		for coords in r_starts
-			x₁ = ((coords[1] - 1) * Δx) + 0.5 * Δx
-	    	x₂ = ((coords[2] - 1) * Δx) + 0.5 * Δx
-			#if overlap is found with obstruction, rerun LHC algorithm
-			if !all(obs -> !overlaps([x₁,x₂] , obs), obstructions)
-				return gen_sample_starts(num_samples=num_samples, L=L, Δx=Δx, obstructions=obstructions)
-			end
-		end	
-	end
-
-	return r_starts
-end
-
-# ╔═╡ fd3393e0-9e08-41e6-a6d2-c28743cb1a68
-robot_starts = gen_sample_starts(num_samples=12, obstructions=obstructions)
-
-# ╔═╡ e75b8aae-8da8-45e8-8405-103f77a3cca6
-md"## run batch test"
 
 # ╔═╡ d0875144-8174-4842-ac84-011f6c82f1b1
 """
@@ -2482,181 +2662,6 @@ function test_params(
 	save("param_times_$(filename).jld2", times)
 	
 	return data_storage, times
-end
-
-# ╔═╡ c84fc2c3-5d44-49dd-a176-cf7277b4ef30
-robot_starts
-
-# ╔═╡ e5ead52b-c407-400d-9a26-fca9b61556f3
-begin
-
-	#=some_test_start = [[85, 85]]=#
-	#=
-	batch_test = run_batch(
-	test_rad_sim_obstructed, 
-	robot_starts, 
-	num_mcmc_samples=150,
-	num_mcmc_chains=4,
-	I=I,
-	L=L,
-	Δx=Δx,
-	allow_overlap=false,
-	x₀=[250.0, 250.0],
-	z_index=1,
-	obstructions=obstructions,
-	exploring_start=true,
-	num_exploring_start_steps=15,
-	spiral=true,
-	r_check=70.0,
-	r_check_count=10,
-	meas_time=1.0,
-	num_replicates=10,
-	filename="test_batch")=#
-end
-
-# ╔═╡ 5e5bf646-0a05-4405-8563-86abe65d6fca
-#=
-test_params(
-	test_rad_sim, 
-	robot_starts,
-	filename="no_obstructions")
-=#
-
-# ╔═╡ 75cda12e-3a12-44b4-aa51-ef60588fee49
-md"# Experimental space"
-
-# ╔═╡ de432aa4-b320-4598-aedd-32ca2b74be52
-"""
-Given the robot path, returns a tuple of optional directions the robot could travel in next.
-
-# arguments
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `environment::Environment` - environment struct generated by the `generate_robot_grid_matrix()` function, which should contain a field named grid of type `Array{Union{Bool, Int64}, 3}` where the first two entries are the x and y coordinates of each grid location for the robot search space and the third entry is the matrix of boolean values representing accessibility of locations.
-# keyword arguments
-* `allow_overlap::Bool=false` - if set to true, allows the robot to backtrack over the previously visited position.
-# returns
-* `Vector{Symbol}` – A list of direction symbols (`:up`, `:down`, `:left`, `:right`) representing valid next moves for the robot based on the current position, grid boundaries, accessibility, and overlap settings. The directions are filtered to avoid backtracking unless `allow_overlap=true`.
-"""
-function get_next_steps(
-	robot_path::Vector{Vector{Float64}}, 
-	environment::Environment;
-	allow_overlap::Bool=false
-)
-
-	#this is needed for src file where type assertions for structs get weird
-	@assert hasfield(typeof(environment), :grid) "environment struct, $(environment), must contain the :grid field."
-
-	#ensure equal grid spacing by ensuring equal entries by row for x's, column for y's
-	for i=1:size(environment.grid[:, :, 1], 1)
-		@assert environment.grid[i, :, 1] == environment.grid[1, :, 1] "row $i is not equal to row 1... all rows must have equal entries."
-	end
-
-	for j=1:size(environment.grid[:, :, 1], 2)
-		@assert environment.grid[:, j, 2] == environment.grid[:, 1, 2] "column $j is not equal to column 1... all columns must have equal entries."
-	end
-
-	#get indicies that most closely match the current position
-	xs 			= environment.grid[1, :, 1]
-	ys 			= environment.grid[:, 1, 2]
-	current_pos = robot_path[end]
-	x_index 	= argmin(abs.(xs .- current_pos[1]))
-	y_index 	= argmin(abs.(ys .- current_pos[2]))
-	pos_index 	= [x_index, y_index]
-
-	#establish directional index change
-	directions 	= Dict(
-        :up    => [0, 1],
-        :down  => [0, -1],
-        :left  => [-1, 0],
-        :right => [1, 0]
-    )
-
-	prev_pos = length(robot_path)>1 ? robot_path[end-1] : robot_path[end]
-	prev_index = [argmin(abs.(xs .- prev_pos[1])), argmin(abs.(ys .- prev_pos[2]))]
-
-	#collect valid directions
-	valid_directions = [
-        dir for (dir, Δ) in directions 
-        if (0 .< (x_index .+ Δ[1]) ≤ size(environment.grid, 1)) &&
-           (0 .< (y_index .+ Δ[2]) ≤ size(environment.grid, 2)) &&
-           environment.grid[x_index + Δ[1], y_index + Δ[2], 3] == true &&
-           (allow_overlap || (x_index + Δ[1], y_index + Δ[2]) != prev_index)
-    ]
-
-	return valid_directions
-
-end
-
-# ╔═╡ 1c0fee71-29a2-4fa1-93db-e1213ed88bb0
-md"## Thompson sampling for experimental space"
-
-# ╔═╡ 54e52416-6c81-4dae-be10-2ddd1449dbfa
-"""
-Given the robot path, finds the best next direction the robot to travel using thompson sampling of the posterior.
-
-# arguments
-* `robot_path::Vector{Vector{Float64}}` - the path the robot has taken thus far with the last entry being its current location.
-* `environment::Environment` - environment struct generated by the `generate_robot_grid_matrix()` function, which should contain a field named grid of type `Array{Union{Bool, Int64}, 3}` where the first two entries are the x and y coordinates of each grid location for the robot search space and the third entry is the matrix of boolean values representing accessibility of locations.
-* `chain::DataFrame` - MCMC test data, this will be used feed concentration values from the forward model into a new MCMC test simulations to arrive at a posterior from which we calculate the entropy.
-# keyword arguments
-* `allow_overlap::Bool=false` - allow the algorithm to overlap over previously visited locations, If set to false, it will only visit previously visited locations in the case where it has no other choice.
-# returns
-* `Symbol` – The direction the robot should move next, selected from `:up`, `:down`, `:left`, or `:right` based on the sampled posterior estimate of the source location. If no valid direction is found, returns `:nothing`, or retries with `allow_overlap=true` if not already enabled.
-"""
-function thompson_sampling(
-	robot_path::Vector{Vector{Float64}}, 
-	environment::Environment,
-	chain::DataFrame;
-	allow_overlap::Bool=false
-)
-
-	#find direction options from left, right, up, down within domain
-	direction_options = get_next_steps(
-		robot_path, 
-		environment,
-		allow_overlap=allow_overlap
-	)
-
-	if length(direction_options) < 1 && allow_overlap == true
-		@warn "found no viable direction options with overlap allowed, returning nothing"
-		return :nothing
-	end
-
-	best_direction = :nothing
-	greedy_dist = Inf
-
-	#randomly sample from the chain
-	rand_θ = chain[rand(1:nrow(chain)), :]
-	target = [rand_θ["x₀[1]"], rand_θ["x₀[2]"]]
-	loc = robot_path[end]
-
-    # Loop through each valid direction and calculate distance
-    for direction in direction_options
-        Δ = get_Δ(direction, Δx=environment.Δ)
-        new_location = loc .+ Δ  # Apply grid spacing
-
-        # Compute Euclidean distance to the sampled location
-        dist = norm(new_location .- target)
-
-        if dist < greedy_dist
-            greedy_dist = dist
-            best_direction = direction
-        end
-    end
-
-	#if we can't find any direction at allow and overlap isn't allowed, redo w/ overlap
-	if best_direction == :nothing && allow_overlap == false
-		@warn "best direction == nothing, switching to allow overlap"
-		return thompson_sampling(
-			robot_path, 
-			environment,
-			chain,
-			allow_overlap=true
-		)
-	end
-	
-	return best_direction
-
 end
 
 # ╔═╡ 5ba7c685-8cc2-409d-8ed7-1b2b18cecd89
@@ -2931,7 +2936,7 @@ end
 =#
 
 # ╔═╡ 11df326c-8cda-4075-be87-c96d94baaec2
-viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
+viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=false)
 
 # ╔═╡ e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
 viz_num=34
@@ -2939,8 +2944,31 @@ viz_num=34
 # ╔═╡ 7ec5c32b-a459-4af1-b056-5ce81acab80b
 viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
 
+# ╔═╡ 1699ebaf-8781-4c0b-a472-66ea0710770e
+data
+
+# ╔═╡ 23bf5985-ad58-447a-94e1-5dcde90e358e
+exp_test[1:end, :]
+
+# ╔═╡ a41efa84-556b-47ac-a9b1-777d5d453686
+md"""
+# TODO
+"""
+
+# ╔═╡ b5e8d79d-e8ad-4778-90e3-50c838053c1f
+md"""
+write a function that reads CSV file to extract data being populated by python script.
+
+* I need csv file with data.
+
+That function will in turn create/overwrite a csv with the next position to collect data.
+
+this function needs to internally find walls.csv in the folder and create the environment struct.
+"""
+
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
+# ╠═4358f533-5944-406f-80a1-c08f99610d5b
 # ╠═54b50777-cfd7-43a3-bcc2-be47f117e635
 # ╠═a03021d8-8de2-4c38-824d-8e0cb571b9f1
 # ╟─2d9fc926-9ed0-4a29-8f5c-d57a7b2300fe
@@ -3096,3 +3124,7 @@ viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_
 # ╠═11df326c-8cda-4075-be87-c96d94baaec2
 # ╠═e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
 # ╠═7ec5c32b-a459-4af1-b056-5ce81acab80b
+# ╠═1699ebaf-8781-4c0b-a472-66ea0710770e
+# ╠═23bf5985-ad58-447a-94e1-5dcde90e358e
+# ╟─a41efa84-556b-47ac-a9b1-777d5d453686
+# ╟─b5e8d79d-e8ad-4778-90e3-50c838053c1f
