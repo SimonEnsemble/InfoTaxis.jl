@@ -43,6 +43,33 @@ end
 
 
 """
+Loads a CSV file containing raw sensor data from the vacuum robot, removes the header, and standardizes the format to match internal data structures.
+
+# arguments
+* `data_path::String`: Path to the CSV file. The file is expected to have a header row followed by columns representing time, x-position, y-position, and count measurements.
+
+# returns
+* `DataFrame`: A standardized DataFrame with the following columns:
+  * `"time"`: Time of measurement (from column 1 of the CSV).
+  * `"x [m]"`: A 2-element vector `[x, y]` of spatial coordinates (from columns 2 and 3).
+  * `"counts"`: Measurement count rounded to the nearest integer (from column 4).
+"""
+function load_and_standardize_data_from_csv(data_path::String)
+    #load CSV, skipping the first header row
+    raw_df = CSV.read(data_path, DataFrame; header=false, skipto=2)
+
+    #standardized DataFrame
+    df = DataFrame(
+        "time" => raw_df[:, 1],
+        "x [m]" => [ [x, y] for (x, y) in zip(raw_df[:, 2], raw_df[:, 3]) ],
+        "counts" => round.(Int, raw_df[:, 4])
+    )
+
+    return df
+end
+
+
+"""
 Identifies points that are too close (i.e. within radius) of a wall. This is being used to thicken walls for the flood fill algorithm.
 
 # arguments

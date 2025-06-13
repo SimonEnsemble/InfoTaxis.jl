@@ -5,6 +5,23 @@ RadModelStructs = include("RadModelStructs.jl")
 
 using .Constants, .RadModelStructs, LinearAlgebra, Turing, SpecialFunctions, DataFrames, StatsBase, Distributions, JLD2
 
+
+"""
+Given the grid spacing, provides an index given the provided position vector.
+
+# arguments
+* `pos::Vector{Float64}` - current position for which you want the corresponding index.
+# keyword arguments
+* `Δx::Float64=10.0` - grid spacing.
+# returns
+* `Tuple{Int, Int}` – A tuple `(i, j)` representing the discrete grid indices corresponding to the input position `pos`. The indices are 1-based and computed by flooring the position divided by the grid spacing `Δx`. This maps continuous coordinates to matrix-style indexing.
+"""
+function pos_to_index(pos::AbstractVector{<:Real}; Δx::Real=10.0)
+    x₁ = Int(floor((pos[1]) / Δx)) + 1
+    x₂ = Int(floor((pos[2]) / Δx)) + 1
+    return (x₁, x₂)
+end
+
 #############################################################################
 ##  ANALYTICAL (POISSON) MODEL
 #############################################################################
@@ -59,9 +76,20 @@ This model assumes that measured counts at each location follow a Poisson distri
 # returns
 * A `Turing.Model` object which can be used for sampling the posterior of the source parameters.
 """
-@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L)
+@model function rad_model(data; L_min::Float64=0.0, L_max::Float64=L, environment=nothing)
 	# source location
     x₀ ~ filldist(Uniform(L_min, L_max), 2)
+
+	if !isnothing(environment)
+	    # soft rejection for inaccessible locations
+	    idx = pos_to_index(x₀; Δx=environment.Δ)
+	    is_valid = 1 ≤ idx[1] ≤ size(environment.grid, 1) &&
+	               1 ≤ idx[2] ≤ size(environment.grid, 2) &&
+	               environment.grid[idx[1], idx[2], 3] == true
+	
+	    Turing.@addlogprob! is_valid ? 0.0 : -Inf
+	end
+	
 	# source strength
 	I ~ Uniform(I_min, I_max)
 

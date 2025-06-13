@@ -2939,10 +2939,10 @@ end
 viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[length(exp_chains)-1], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=false)
 
 # ╔═╡ e5ba01be-75c3-4f64-959d-bcdf3f49a8cb
-viz_num=34
+viz_num=30
 
 # ╔═╡ 7ec5c32b-a459-4af1-b056-5ce81acab80b
-viz_robot_grid(grid_env, data_collection=exp_test[1:viz_num, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
+viz_robot_grid(grid_env, data_collection=exp_test[1:end, :], chain_data=exp_chains[viz_num], show_grid=false, x₀=[250.0, 250.0], view_chain_as_hm=true)
 
 # ╔═╡ 1699ebaf-8781-4c0b-a472-66ea0710770e
 data
@@ -2954,6 +2954,39 @@ exp_test[1:end, :]
 md"""
 # TODO
 """
+
+# ╔═╡ f77e064c-c86c-4a75-9d93-7618d309e308
+"""
+Loads a CSV file containing raw sensor data from the vacuum robot, removes the header, and standardizes the format to match internal data structures.
+
+# arguments
+* `data_path::String`: Path to the CSV file. The file is expected to have a header row followed by columns representing time, x-position, y-position, and count measurements.
+
+# returns
+* `DataFrame`: A standardized DataFrame with the following columns:
+  * `"time"`: Time of measurement (from column 1 of the CSV).
+  * `"x [m]"`: A 2-element vector `[x, y]` of spatial coordinates (from columns 2 and 3).
+  * `"counts"`: Measurement count rounded to the nearest integer (from column 4).
+"""
+function load_and_standardize_data_from_csv(data_path::String)
+    #load CSV, skipping the first header row
+    raw_df = CSV.read(data_path, DataFrame; header=false, skipto=2)
+
+    #standardized DataFrame
+    df = DataFrame(
+        "time" => raw_df[:, 1],
+        "x [m]" => [ [x, y] for (x, y) in zip(raw_df[:, 2], raw_df[:, 3]) ],
+        "counts" => round.(Int, raw_df[:, 4])
+    )
+
+    return df
+end
+
+# ╔═╡ 15c3757a-8f94-4070-989e-3725d73d4495
+load_and_standardize_data_from_csv(joinpath(pwd(), joinpath("csv", "Collected_data.csv")))
+
+# ╔═╡ 728b148f-1783-406a-9e76-ce63f7fa2707
+readdir("csv")
 
 # ╔═╡ b5e8d79d-e8ad-4778-90e3-50c838053c1f
 md"""
@@ -2987,6 +3020,8 @@ This function performs 3 major tasks, it uploads the data file from the collecte
 * `disable_log::Bool=true` - set to false to allow logging by Turing.jl.
 # returns
 * `Vector{Float64}` – A 2D coordinate `[x, y]` representing the next location where the robot should collect data next. The returned position is chosen based on Thompson sampling from the posterior distribution and adjusted for exploration, while ensuring that the location lies within the accessible search grid and avoids obstructions.
+* `mask_clearance::Int=5` - The thickness of walls, larger values will ensure small openings are blocked, set to 0 to not use a mask at all.
+* `Δ::Int` - The size of each step in the robot exploration matrix. For example, a step of 10 means each index in the robot matrix is 10 times further apart then the original obstruction map.
 
 """
 function get_update_next_pos(
@@ -3001,23 +3036,29 @@ function get_update_next_pos(
 	r_check::Float64=70.0,
 	r_check_count::Int=10,
 	disable_log::Bool=true,
-	turn_off_explore_threshold::Real=7
+	turn_off_explore_threshold::Real=7,
+	seed_loc::Tuple{Int, Int}=(250, 250),
+	mask_clearance::Int=5,
+	Δ::Int=10
 )
 
-	#=TODO 
-	write separate function to load collected_data.csv file. Do that here.
+	data = LoadData.load_and_standardize_data_from_csv(data_path)
 
-	data = gen_data_df(data_path)
-	=#
-
-	#=
-		generate environment struct here
-	=#
+	#load vacuum env
+	vac_environment = LoadData.parse_numpy_csv_file(walls_path)
+	#mask environment by thickening walls and removing empty wall space
+	environment_masked = LoadData.flood_fill(
+		vac_environment, 
+		seed_loc, 
+		clearance_radius=mask_clearance
+	)
+	#load into environment struct and build robot test matrix
+	grid_env =  generate_robot_grid_matrix(vac_environment, Δ)
 
 
 	next_pos = get_next_sample(
 		data, 
-		environment,
+		grid_env,
 		num_mcmc_samples=num_mcmc_samples,
 		num_mcmc_chains=num_mcmc_chains,
 		allow_overlap=allow_overlap,
@@ -3030,11 +3071,18 @@ function get_update_next_pos(
 		turn_off_explore_threshold=turn_off_explore_threshold
 	)
 
-	#=
-		add next_pos to a csv file
-	=#
+	#save next pos to csv
+    open(joinpath("csv","next_pos.csv"), "w") do io
+        writedlm(io, [next_pos'], ',')
+    end
 
 end
+
+# ╔═╡ 107eff0d-daee-4b09-9eb6-e56ec6c4a5b2
+get_update_next_pos(joinpath("csv", "Collected_data.csv"), joinpath("csv", "walls.csv"))
+
+# ╔═╡ d5364993-9004-41bc-886e-49a7c1830461
+typeof((250, 250))
 
 # ╔═╡ Cell order:
 # ╠═285d575a-ad5d-401b-a8b1-c5325e1d27e9
@@ -3197,5 +3245,10 @@ end
 # ╠═1699ebaf-8781-4c0b-a472-66ea0710770e
 # ╠═23bf5985-ad58-447a-94e1-5dcde90e358e
 # ╟─a41efa84-556b-47ac-a9b1-777d5d453686
+# ╠═f77e064c-c86c-4a75-9d93-7618d309e308
+# ╠═15c3757a-8f94-4070-989e-3725d73d4495
+# ╠═728b148f-1783-406a-9e76-ce63f7fa2707
 # ╟─b5e8d79d-e8ad-4778-90e3-50c838053c1f
 # ╠═27f0209f-6b74-4e48-b6b0-e9f729d44308
+# ╠═107eff0d-daee-4b09-9eb6-e56ec6c4a5b2
+# ╠═d5364993-9004-41bc-886e-49a7c1830461
